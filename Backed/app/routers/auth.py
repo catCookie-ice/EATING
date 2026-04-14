@@ -1,6 +1,7 @@
 """认证路由 - 登录注册"""
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 from datetime import datetime
 from typing import Optional
@@ -18,7 +19,7 @@ from app.utils.jwt import create_access_token
 from app.utils.crypto import encrypt_contact
 from app.utils.text_filter import TextFilter
 from app.config import settings
-from app.dependencies import get_current_admin, get_current_user
+from app.dependencies import get_current_admin, get_current_user, security
 
 router = APIRouter(prefix="/auth", tags=["认证"])
 
@@ -289,6 +290,43 @@ def login(login_data: LoginRequest, db: Session = Depends(get_db)):
         "token_type": "bearer",
         "account": person.account
     }
+
+
+@router.get("/check-admin")
+def check_admin_status(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db)
+):
+    """检查当前用户是否为管理员 (不累加failed_admin_attempts)"""
+    from app.utils.jwt import decode_access_token
+    from datetime import datetime
+
+    token = credentials.credentials
+    payload = decode_access_token(token)
+
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="无效的认证凭据",
+        )
+
+    account = payload.get("sub")
+    if account is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="无效的认证凭据",
+        )
+
+    # 检查是否为管理员
+    admin = db.query(Admin).filter(Admin.account == account).first()
+    if admin is None:
+        return {"is_admin": False, "admin_level": None}
+
+    # 检查权限是否过期
+    if admin.permission_until and admin.permission_until < datetime.now():
+        return {"is_admin": False, "admin_level": None, "detail": "管理员权限已过期"}
+
+    return {"is_admin": True, "admin_level": admin.level}
 
 
 @router.post("/reset-password")

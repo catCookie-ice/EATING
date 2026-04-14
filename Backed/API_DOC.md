@@ -43,6 +43,25 @@
   ```
 - **返回**: JWT令牌、账户信息、管理员级别
 
+### GET /api/auth/check-admin
+- **功能**: 检查当前用户是否为管理员
+- **权限**: 登录用户
+- **前端请求URL**: `GET http://localhost:8000/api/auth/check-admin`
+- **返回**:
+  ```json
+  {
+    "is_admin": true,
+    "admin_level": 0
+  }
+  ```
+  或
+  ```json
+  {
+    "is_admin": false,
+    "admin_level": null
+  }
+  ```
+
 ### POST /api/auth/reset-password
 - **功能**: 重置密码
 - **权限**: 登录用户

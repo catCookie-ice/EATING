@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import axios from 'axios'
+import router from '../router'
 
 export const useAuthStore = defineStore('auth', () => {
   const token = ref(localStorage.getItem('token') || '')
@@ -40,27 +41,35 @@ export const useAuthStore = defineStore('auth', () => {
     isAdmin.value = false
     adminLevel.value = null
     nickname.value = ''
+    initialized.value = false
     localStorage.removeItem('token')
     localStorage.removeItem('account')
     delete axios.defaults.headers.common['Authorization']
+    router.push('/login')
   }
 
   async function init() {
+    // 防止重复调用
+    if (initialized.value) return
+
     if (token.value) {
       // 设置token到axios headers
       axios.defaults.headers.common['Authorization'] = `Bearer ${token.value}`
 
-      // 先检查是否是管理员
+      // 先通过专用接口检查是否是管理员（不会累加 failed_admin_attempts）
       try {
-        const adminRes = await axios.get('/api/admins/me')
-        isAdmin.value = true
-        adminLevel.value = adminRes.data.level
-        account.value = adminRes.data.account
-        nickname.value = ''
-        initialized.value = true
-        return
+        const checkRes = await axios.get('/api/auth/check-admin')
+        if (checkRes.data.is_admin) {
+          isAdmin.value = true
+          adminLevel.value = checkRes.data.admin_level
+          account.value = localStorage.getItem('account') || ''
+          nickname.value = ''
+          initialized.value = true
+          return
+        }
+        // 不是管理员，继续检查用户
       } catch (e: any) {
-        // 不是管理员，或者403，继续检查用户
+        // 检查失败，继续检查用户
       }
 
       // 尝试获取用户信息
