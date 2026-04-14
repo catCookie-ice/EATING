@@ -1,0 +1,280 @@
+<script setup lang="ts">
+import { ref, onMounted, computed } from 'vue'
+import { useRouter } from 'vue-router'
+import axios from 'axios'
+
+const router = useRouter()
+const recipes = ref<any[]>([])
+const loading = ref(false)
+
+const searchQuery = ref('')
+const selectedCuisine = ref('')
+const selectedHalal = ref<boolean | null>(null)
+
+const cuisines = [
+        "川菜", "粤菜", "湘菜", "鲁菜", "苏菜", "浙菜", "闽菜", "徽菜",
+        "东北菜", "西北菜","家常菜","西餐", "日料", "韩餐", "东南亚菜", "家常菜","其他"
+    ]
+
+onMounted(async () => {
+  loading.value = true
+  try {
+    const res = await axios.get('/api/recipes/')
+    recipes.value = res.data
+  } finally {
+    loading.value = false
+  }
+})
+
+const filteredRecipes = computed(() => {
+  return recipes.value.filter(r => {
+    if (searchQuery.value && !r.name.includes(searchQuery.value)) return false
+    if (selectedCuisine.value && r.cuisine !== selectedCuisine.value) return false
+    if (selectedHalal.value !== null && r.is_halal !== selectedHalal.value) return false
+    return true
+  })
+})
+
+function goToDetail(id: number) {
+  window.open(`/recipes/${id}`, '_blank')
+}
+
+function getRecipeEmoji(name: string): string {
+  const emojiMap: Record<string, string> = {
+    '炒': '🍳', '煮': '🍲', '蒸': '🥟', '炸': '🍟', '烤': '🍕',
+    '焖': '🍚', '凉拌': '🥗', '沙拉': '🥗', '汤': '🍜', '面': '🍜',
+    '饭': '🍚', '肉': '🥩', '鱼': '🐟', '鸡': '🍗', '蔬': '🥬', '默认': '🍽️'
+  }
+  for (const key in emojiMap) {
+    if (name.includes(key)) return emojiMap[key]
+  }
+  return emojiMap['默认']
+}
+</script>
+
+<template>
+  <div class="recipes-page">
+    <div class="page-header">
+      <h1>食谱列表</h1>
+      <p>发现美味健康的食谱</p>
+    </div>
+
+    <div class="filters">
+      <div class="search-box">
+        <input
+          v-model="searchQuery"
+          type="text"
+          placeholder="搜索食谱..."
+        />
+      </div>
+      <div class="filter-group">
+        <select v-model="selectedCuisine">
+          <option value="">全部菜系</option>
+          <option v-for="c in cuisines" :key="c" :value="c">{{ c }}</option>
+        </select>
+        <select v-model="selectedHalal">
+          <option :value="null">全部</option>
+          <option :value="true">清真</option>
+          <option :value="false">非清真</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="recipe-grid">
+      <div
+        v-for="recipe in filteredRecipes"
+        :key="recipe.id"
+        class="recipe-card"
+        @click="goToDetail(recipe.id)"
+      >
+        <div class="recipe-image">
+          <span class="recipe-emoji">{{ getRecipeEmoji(recipe.name) }}</span>
+        </div>
+        <div class="recipe-info">
+          <h3>{{ recipe.name }}</h3>
+          <div class="recipe-meta">
+            <span class="cuisine">{{ recipe.cuisine || '家常' }}</span>
+            <span class="difficulty">难度 {{ recipe.difficulty }}</span>
+          </div>
+          <div class="recipe-tags">
+            <span v-if="recipe.is_halal" class="tag halal">清真</span>
+            <span class="tag method">{{ recipe.method || '家常' }}</span>
+            <span v-if="recipe.source === '系统'" class="tag official">官方</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="filteredRecipes.length === 0" class="empty-state">
+      <span class="empty-icon">🔍</span>
+      <p>暂无食谱</p>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.page-header {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.page-header h1 {
+  color: #2e7d32;
+  font-size: 2rem;
+  margin-bottom: 0.5rem;
+}
+
+.page-header p {
+  color: #689f38;
+}
+
+.filters {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 2rem;
+  flex-wrap: wrap;
+}
+
+.search-box {
+  flex: 1;
+  min-width: 200px;
+}
+
+.search-box input {
+  width: 100%;
+  padding: 0.8rem 1rem;
+  border: 2px solid #e0e0e0;
+  border-radius: 12px;
+  font-size: 1rem;
+  transition: all 0.3s ease;
+}
+
+.search-box input:focus {
+  outline: none;
+  border-color: #4caf50;
+  box-shadow: 0 0 0 3px rgba(76, 175, 80, 0.1);
+}
+
+.filter-group {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.filter-group select {
+  padding: 0.8rem 1rem;
+  border: 2px solid #e0e0e0;
+  border-radius: 12px;
+  font-size: 1rem;
+  background: white;
+  cursor: pointer;
+}
+
+.filter-group select:focus {
+  outline: none;
+  border-color: #4caf50;
+}
+
+.recipe-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1.5rem;
+}
+
+.recipe-card {
+  background: white;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.recipe-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 8px 30px rgba(76, 175, 80, 0.2);
+}
+
+.recipe-image {
+  height: 140px;
+  background: linear-gradient(135deg, #e8f5e9, #c8e6c9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.recipe-emoji {
+  font-size: 3.5rem;
+}
+
+.recipe-info {
+  padding: 1rem;
+}
+
+.recipe-info h3 {
+  color: #2e7d32;
+  font-size: 1rem;
+  margin-bottom: 0.5rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.recipe-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.8rem;
+  color: #78909c;
+  margin-bottom: 0.5rem;
+}
+
+.recipe-tags {
+  display: flex;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+}
+
+.tag {
+  font-size: 0.7rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 10px;
+}
+
+.tag.halal {
+  background: #e3f2fd;
+  color: #1976d2;
+}
+
+.tag.method {
+  background: #fff3e0;
+  color: #f57c00;
+}
+
+.tag.official {
+  background: #e8f5e9;
+  color: #388e3c;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 4rem;
+  color: #78909c;
+}
+
+.empty-icon {
+  font-size: 4rem;
+  display: block;
+  margin-bottom: 1rem;
+}
+
+@media (max-width: 1024px) {
+  .recipe-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .recipe-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+</style>

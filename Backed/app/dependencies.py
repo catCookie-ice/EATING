@@ -1,0 +1,160 @@
+"""依赖注入"""
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from sqlalchemy.orm import Session
+from app.database import get_db
+from app.models.person import Person
+from app.models.admin import Admin
+from app.utils.jwt import decode_access_token
+from datetime import datetime
+
+security = HTTPBearer()
+
+# 冻结阈值
+MAX_FAILED_ADMIN_ATTEMPTS = 3
+
+
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db)
+) -> Person:
+    """获取当前登录用户"""
+    token = credentials.credentials
+    payload = decode_access_token(token)
+
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="无效的认证凭据",
+        )
+
+    account = payload.get("sub")
+    if account is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="无效的认证凭据",
+        )
+
+    person = db.query(Person).filter(Person.account == account).first()
+    if person is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="用户不存在",
+        )
+
+    if person.status == "删除":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="用户已被删除",
+        )
+
+    return person
+
+
+def get_current_admin(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db)
+) -> Admin:
+    """获取当前登录管理员"""
+    token = credentials.credentials
+    payload = decode_access_token(token)
+
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="无效的认证凭据",
+        )
+
+    account = payload.get("sub")
+    if account is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="无效的认证凭据",
+        )
+
+    admin = db.query(Admin).filter(Admin.account == account).first()
+    if admin is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="管理员不存在",
+        )
+
+    # 检查权限是否过期
+    if admin.permission_until and admin.permission_until < datetime.now():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="管理员权限已过期",
+        )
+
+    return admin
+
+
+def require_level_0_admin(admin: Admin = Depends(get_current_admin)) -> Admin:
+    """要求0级管理员"""
+    if admin.level != 0:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="需要0级管理员权限",
+        )
+    return admin
+
+
+def require_admin(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db)
+) -> Admin:
+    """要求管理员权限，非管理员调用时记录失败次数并可能冻结账户"""
+    token = credentials.credentials
+    payload = decode_access_token(token)
+
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="无效的认证凭据",
+        )
+
+    account = payload.get("sub")
+    if account is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="无效的认证凭据",
+        )
+
+    person = db.query(Person).filter(Person.account == account).first()
+    if person is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="用户不存在",
+        )
+
+    # 检查是否为管理员
+    admin = db.query(Admin).filter(Admin.account == account).first()
+    if admin is None:
+        # 非管理员，记录失败次数
+        if person.failed_admin_attempts is None:
+            person.failed_admin_attempts = 1
+        else:
+            person.failed_admin_attempts += 1
+
+        if person.failed_admin_attempts >= MAX_FAILED_ADMIN_ATTEMPTS:
+            person.status = "冻结"
+            db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="您没有该权限，且账户已被冻结",
+            )
+
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="您没有该权限",
+        )
+
+    # 检查权限是否过期
+    if admin.permission_until and admin.permission_until < datetime.now():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="管理员权限已过期",
+        )
+
+    return admin

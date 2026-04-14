@@ -1,0 +1,216 @@
+<script setup lang="ts">
+import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+import { useAuthStore } from '../stores'
+import axios from 'axios'
+
+const router = useRouter()
+const authStore = useAuthStore()
+
+const favorites = ref<any[]>([])
+const loading = ref(true)
+
+onMounted(async () => {
+  await authStore.init()
+  if (!authStore.isLoggedIn) {
+    router.push('/login')
+    return
+  }
+  try {
+    const res = await axios.get('/api/users/me/favorites')
+    favorites.value = res.data
+  } catch (e) {
+    console.error('获取收藏失败', e)
+  } finally {
+    loading.value = false
+  }
+})
+
+function goToRecipe(id: number) {
+  window.open(`/recipes/${id}`, '_blank')
+}
+
+function getRecipeEmoji(name: string): string {
+  const emojiMap: Record<string, string> = {
+    '炒': '🍳', '煮': '🍲', '蒸': '🥟', '炸': '🍟', '烤': '🍕',
+    '焖': '🍚', '凉拌': '🥗', '沙拉': '🥗', '汤': '🍜', '默认': '🍽️'
+  }
+  for (const key in emojiMap) {
+    if (name.includes(key)) return emojiMap[key]
+  }
+  return emojiMap['默认']
+}
+
+function goBack() {
+  router.push('/profile')
+}
+</script>
+
+<template>
+  <div class="favorites-page">
+    <div class="page-header">
+      <button class="btn-back" @click="goBack">← 返回</button>
+      <h2>我的收藏</h2>
+    </div>
+
+    <div class="recipe-grid" v-if="favorites.length && !loading">
+      <div
+        v-for="recipe in favorites"
+        :key="recipe.id"
+        class="recipe-card"
+        @click="goToRecipe(recipe.id)"
+      >
+        <div class="recipe-image">
+          <span class="recipe-emoji">{{ getRecipeEmoji(recipe.name) }}</span>
+        </div>
+        <div class="recipe-info">
+          <h4>{{ recipe.name }}</h4>
+          <div class="recipe-tags">
+            <span class="tag difficulty">难度 {{ recipe.difficulty }}</span>
+            <span class="tag cuisine">{{ recipe.cuisine }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div v-else-if="loading" class="loading">
+      <p>加载中...</p>
+    </div>
+
+    <div v-else class="empty">
+      <p>还没有收藏任何食谱</p>
+      <button class="btn-explore" @click="router.push('/recipes')">去逛逛</button>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.favorites-page {
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.page-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.btn-back {
+  background: #f5f5f5;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: #333;
+}
+
+.btn-back:hover {
+  background: #e0e0e0;
+}
+
+.page-header h2 {
+  color: #2e7d32;
+}
+
+.recipe-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+}
+
+.recipe-card {
+  background: white;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.recipe-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 4px 15px rgba(76, 175, 80, 0.2);
+}
+
+.recipe-image {
+  height: 100px;
+  background: linear-gradient(135deg, #e8f5e9, #c8e6c9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.recipe-emoji {
+  font-size: 2.5rem;
+}
+
+.recipe-info {
+  padding: 0.8rem;
+}
+
+.recipe-info h4 {
+  color: #2e7d32;
+  font-size: 0.9rem;
+  margin-bottom: 0.5rem;
+}
+
+.recipe-tags {
+  display: flex;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+}
+
+.tag {
+  font-size: 0.7rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 8px;
+  background: #f5f5f5;
+  color: #666;
+}
+
+.tag.cuisine {
+  background: #fff3e0;
+  color: #f57c00;
+}
+
+.loading {
+  text-align: center;
+  padding: 4rem;
+  color: #78909c;
+}
+
+.empty {
+  text-align: center;
+  padding: 4rem;
+  background: white;
+  border-radius: 12px;
+  color: #78909c;
+}
+
+.empty p {
+  margin-bottom: 1rem;
+}
+
+.btn-explore {
+  background: #4caf50;
+  color: white;
+  border: none;
+  padding: 0.8rem 1.5rem;
+  border-radius: 12px;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.btn-explore:hover {
+  background: #43a047;
+}
+
+@media (max-width: 600px) {
+  .recipe-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+</style>
