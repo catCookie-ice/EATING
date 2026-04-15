@@ -2,13 +2,16 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.encoders import jsonable_encoder
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from contextlib import asynccontextmanager
 from datetime import datetime
+import os
 
 from app.database import engine, Base, get_db
 from app.models.person import Person
 from app.models.admin import Admin
-from app.routers import auth, ingredients, recipes, users, admins
+from app.routers import auth, ingredients, recipes, users, admins, upload
 from app.config import settings
 from app.utils.password import hash_password
 
@@ -93,6 +96,12 @@ app.include_router(recipes.router, prefix="/api")
 app.include_router(recipes.router_search, prefix="/api")
 app.include_router(users.router, prefix="/api")
 app.include_router(admins.router, prefix="/api")
+app.include_router(upload.router, prefix="/api")
+
+# 添加静态文件服务（上传的图片）
+upload_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), settings.LOCAL_UPLOAD_DIR)
+if os.path.exists(upload_dir):
+    app.mount("/uploads", StaticFiles(directory=upload_dir), name="uploads")
 
 
 @app.get("/")

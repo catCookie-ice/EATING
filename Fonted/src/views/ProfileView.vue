@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores'
 import axios from 'axios'
@@ -8,8 +8,20 @@ const router = useRouter()
 const authStore = useAuthStore()
 
 const myRecipes = ref<any[]>([])
+const userInfo = ref<any>({})
 const showRecipeForm = ref(false)
 const editingRecipeId = ref<number | null>(null)
+
+// 头像相关
+const showAvatarModal = ref(false)
+const avatarPreview = ref('')
+const avatarFile = ref<File | null>(null)
+const uploadingAvatar = ref(false)
+
+// 是否是管理员
+const isAdmin = computed(() => authStore.isAdmin)
+
+// 食谱表单
 const recipeForm = ref({
   name: '',
   cuisine: '川菜',
@@ -26,6 +38,14 @@ const recipeForm = ref({
   vitamins: [] as string[],
   minerals: [] as string[]
 })
+let savedRecipeForm = JSON.parse(JSON.stringify(recipeForm.value))
+
+// 用于标记是否意外关闭（点击弹窗外部）
+let isAccidentalClose = false
+
+// 剪贴板数据
+const clipboardData = ref<{type: 'recipe' | null, data: any}>({type: null, data: null})
+
 const cuisineOptions = [
         "川菜", "粤菜", "湘菜", "鲁菜", "苏菜", "浙菜", "闽菜", "徽菜",
         "东北菜", "西北菜","家常菜","西餐", "日料", "韩餐", "东南亚菜", "家常菜","其他"
@@ -37,21 +57,54 @@ const newAllergen = ref('')
 const newVitamin = ref('')
 const newMineral = ref('')
 
-// 是否是管理员
-const isAdmin = computed(() => authStore.isAdmin)
-
 onMounted(async () => {
   await authStore.init()
   if (!authStore.isLoggedIn) {
     router.push('/login')
     return
   }
+  // 复用 authStore 中的用户信息
+  userInfo.value = authStore.userInfo || {
+    account: authStore.account,
+    nickname: authStore.nickname,
+    avatar_url: authStore.avatarUrl
+  }
+  // 加载草稿
+  loadDrafts()
   // 仅普通用户需要获取自己的食谱
   if (!isAdmin.value) {
     const res = await axios.get('/api/recipes/my')
     myRecipes.value = res.data
   }
 })
+
+// 加载草稿
+function loadDrafts() {
+  try {
+    const draft = localStorage.getItem('recipe_draft')
+    if (draft) {
+      savedRecipeForm = JSON.parse(draft)
+    }
+  } catch (e) {
+    console.error('加载草稿失败', e)
+  }
+}
+
+// 监听弹窗关闭，意外关闭时自动保存草稿
+watch(showRecipeForm, (newVal) => {
+  if (!newVal && isAccidentalClose && recipeForm.value.name) {
+    savedRecipeForm = JSON.parse(JSON.stringify(recipeForm.value))
+    localStorage.setItem('recipe_draft', JSON.stringify(savedRecipeForm))
+  }
+  isAccidentalClose = false
+})
+
+// 关闭食谱表单
+function closeRecipeForm() {
+  showRecipeForm.value = false
+  // 清除草稿
+  clearRecipeDraft()
+}
 
 function goToRecipe(id: number) {
   window.open(`/recipes/${id}`, '_blank')
@@ -74,11 +127,165 @@ function goToAdmin() {
 
 function handleLogout() {
   authStore.logout()
-  router.push('/')
+  router.push('/Login')
 }
 
-function openMyRecipeCreate(recipe?: any) {
+// 头像点击处理
+function onAvatarClick() {
+  avatarPreview.value = userInfo.value.avatar_url || ''
+  showAvatarModal.value = true
+}
+
+// 关闭头像弹窗
+function closeAvatarModal() {
+  showAvatarModal.value = false
+  avatarFile.value = null
+  avatarPreview.value = ''
+}
+
+// 解析剪贴板中的JSON数据
+async function parseClipboard() {
+  // 只在食谱弹窗打开时检测
+  if (!showRecipeForm.value) {
+    clipboardData.value = {type: null, data: null}
+    return false
+  }
+
+  try {
+    const text = await navigator.clipboard.readText()
+    const data = JSON.parse(text)
+
+    // 检测食谱格式
+    if (data.name && data.materials && Array.isArray(data.materials) && data.seasonings) {
+      clipboardData.value = {type: 'recipe', data}
+      return true
+    }
+  } catch (e) {
+    // 不是有效JSON，忽略
+  }
+  clipboardData.value = {type: null, data: null}
+  return false
+}
+
+// 应用剪贴板数据到表单
+async function applyClipboardData() {
+  if (clipboardData.value.type === 'recipe' && clipboardData.value.data) {
+    const d = clipboardData.value.data
+
+    // 转换materials格式
+    const materials = d.materials?.map((m: any) => {
+      const key = Object.keys(m)[0]
+      return {name: key, amount: Object.values(m)[0]}
+    }) || []
+
+    // 转换seasonings格式
+    const seasonings = d.seasonings?.map((s: any) => {
+      const key = Object.keys(s)[0]
+      return {name: key, amount: Object.values(s)[0]}
+    }) || []
+
+    // 转换steps格式
+    const steps = d.steps?.map((s: any) => ({
+      step: s.step || '',
+      description: s.description || ''
+    })) || []
+
+    recipeForm.value = {
+      name: d.name || '',
+      cuisine: d.cuisine || '川菜',
+      difficulty: d.difficulty || 5,
+      method: d.method || '炒',
+      steps: steps.length ? steps : [{step: '第一步', description: ''}],
+      materials: materials.length ? materials : [{name: '', amount: ''}],
+      seasonings: seasonings.length ? seasonings : [{name: '', amount: ''}],
+      carbohydrate: d.carbohydrate || 0,
+      protein: d.protein || 0,
+      fat: d.fat || 0,
+      is_halal: d.is_halal || false,
+      allergens: d.allergens || [],
+      vitamins: d.vitamins || [],
+      minerals: d.minerals || []
+    }
+    showRecipeForm.value = true
+  }
+
+  // 导入后清空剪贴板内容
+  try {
+    await navigator.clipboard.writeText('')
+  } catch (e) {
+    // 忽略剪贴板写入错误
+  }
+
+  clipboardData.value = {type: null, data: null}
+}
+
+function dismissClipboard() {
+  clipboardData.value = {type: null, data: null}
+}
+
+// 选择新头像文件
+function onAvatarFileChange(event: Event) {
+  const input = event.target as HTMLInputElement
+  if (input.files && input.files[0]) {
+    const file = input.files[0]
+    // 检查文件类型
+    if (!['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/bmp'].includes(file.type)) {
+      alert('请选择图片文件 (jpeg/png/gif/webp/bmp)')
+      return
+    }
+    // 检查文件大小 (最大5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      alert('图片大小不能超过5MB')
+      return
+    }
+    avatarFile.value = file
+    // 生成预览
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      avatarPreview.value = e.target?.result as string
+    }
+    reader.readAsDataURL(file)
+  }
+}
+
+// 上传新头像
+async function uploadAvatar() {
+  if (!avatarFile.value) {
+    alert('请先选择图片文件')
+    return
+  }
+  uploadingAvatar.value = true
+  try {
+    const formData = new FormData()
+    formData.append('file', avatarFile.value)
+
+    const res = await axios.post('/api/upload/avatar', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+
+    // 更新用户头像
+    await axios.put('/api/users/me', { avatar_url: res.data.url })
+
+    // 刷新用户信息
+    const userRes = await axios.get('/api/users/me')
+    userInfo.value = userRes.data
+    // 同时更新 authStore 中的用户信息
+    authStore.userInfo = userRes.data
+    authStore.avatarUrl = userRes.data.avatar_url
+
+    alert('头像更新成功')
+    closeAvatarModal()
+  } catch (e: any) {
+    alert(e.response?.data?.detail || '上传失败')
+  } finally {
+    uploadingAvatar.value = false
+  }
+}
+
+function openMyRecipeCreate(recipe?: any, restoreDraft: boolean = true) {
   editingRecipeId.value = recipe?.id || null
+  // 尝试解析剪贴板（异步但不阻塞）
+  parseClipboard()
 
   if (recipe) {
     // 编辑模式：填充现有数据
@@ -112,25 +319,50 @@ function openMyRecipeCreate(recipe?: any) {
       minerals: recipe.minerals || []
     }
   } else {
-    // 新建模式
-    recipeForm.value = {
-      name: '',
-      cuisine: '川菜',
-      difficulty: 5,
-      method: '炒',
-      steps: [{ step: '第一步', description: '' }],
-      materials: [{ name: '', amount: '' }],
-      seasonings: [{ name: '', amount: '' }],
-      carbohydrate: 0,
-      protein: 0,
-      fat: 0,
-      is_halal: false,
-      allergens: [],
-      vitamins: [],
-      minerals: []
+    // 新建模式：如果有保存的草稿且需要恢复
+    if (restoreDraft && savedRecipeForm.name) {
+      recipeForm.value = JSON.parse(JSON.stringify(savedRecipeForm))
+      // 清除草稿
+      savedRecipeForm = {
+        name: '',
+        cuisine: '川菜',
+        difficulty: 5,
+        method: '炒',
+        steps: [{ step: '第一步', description: '' }],
+        materials: [{ name: '', amount: '' }],
+        seasonings: [{ name: '', amount: '' }],
+        carbohydrate: 0,
+        protein: 0,
+        fat: 0,
+        is_halal: false,
+        allergens: [],
+        vitamins: [],
+        minerals: []
+      }
+      localStorage.removeItem('recipe_draft')
+    } else {
+      recipeForm.value = {
+        name: '',
+        cuisine: '川菜',
+        difficulty: 5,
+        method: '炒',
+        steps: [{ step: '第一步', description: '' }],
+        materials: [{ name: '', amount: '' }],
+        seasonings: [{ name: '', amount: '' }],
+        carbohydrate: 0,
+        protein: 0,
+        fat: 0,
+        is_halal: false,
+        allergens: [],
+        vitamins: [],
+        minerals: []
+      }
     }
   }
   showRecipeForm.value = true
+
+  // 尝试解析剪贴板
+  parseClipboard()
 }
 
 function addStep() {
@@ -222,8 +454,10 @@ async function saveMyRecipe() {
     for (let i = 0; i < recipeForm.value.steps.length; i++) {
       const s = recipeForm.value.steps[i]
       if (s.description?.trim()) {
+        // step 可能是数字或字符串，需要转换为字符串
+        const stepKey = typeof s.step === 'number' ? `第${s.step}步` : String(s.step).trim()
         steps.push({
-          step: s.step.trim(),
+          step: stepKey,
           description: s.description.trim()
         })
       }
@@ -256,6 +490,25 @@ async function saveMyRecipe() {
       alert('食谱已提交，等待审核')
     }
 
+    // 成功后清除草稿
+    savedRecipeForm = {
+      name: '',
+      cuisine: '川菜',
+      difficulty: 5,
+      method: '炒',
+      steps: [{ step: '第一步', description: '' }],
+      materials: [{ name: '', amount: '' }],
+      seasonings: [{ name: '', amount: '' }],
+      carbohydrate: 0,
+      protein: 0,
+      fat: 0,
+      is_halal: false,
+      allergens: [],
+      vitamins: [],
+      minerals: []
+    }
+    localStorage.removeItem('recipe_draft')
+
     showRecipeForm.value = false
     editingRecipeId.value = null
 
@@ -265,6 +518,35 @@ async function saveMyRecipe() {
   } catch (e: any) {
     alert(e.response?.data?.detail || '保存失败')
   }
+}
+
+// 保存草稿
+function saveRecipeDraft() {
+  savedRecipeForm = JSON.parse(JSON.stringify(recipeForm.value))
+  localStorage.setItem('recipe_draft', JSON.stringify(savedRecipeForm))
+  alert('草稿已保存')
+  showRecipeForm.value = false
+}
+
+// 清除草稿
+function clearRecipeDraft() {
+  savedRecipeForm = {
+    name: '',
+    cuisine: '川菜',
+    difficulty: 5,
+    method: '炒',
+    steps: [{ step: '第一步', description: '' }],
+    materials: [{ name: '', amount: '' }],
+    seasonings: [{ name: '', amount: '' }],
+    carbohydrate: 0,
+    protein: 0,
+    fat: 0,
+    is_halal: false,
+    allergens: [],
+    vitamins: [],
+    minerals: []
+  }
+  localStorage.removeItem('recipe_draft')
 }
 
 function goToFavorites() {
@@ -308,10 +590,46 @@ async function deleteMyRecipe(recipeId: number) {
 
 <template>
   <div class="profile-page">
+    <!-- 剪贴板提示 -->
+    <div v-if="clipboardData.type" class="clipboard-toast">
+      <div class="clipboard-content">
+        <span>检测到食谱数据，是否导入？</span>
+        <div class="clipboard-actions">
+          <button class="btn-confirm" @click="applyClipboardData">导入</button>
+          <button class="btn-cancel" @click="dismissClipboard">忽略</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 头像弹窗 -->
+    <div v-if="showAvatarModal" class="modal-overlay" @click="closeAvatarModal">
+      <div class="modal avatar-modal" @click.stop>
+        <h3>更换头像</h3>
+        <div class="avatar-preview">
+          <img v-if="avatarPreview" :src="avatarPreview" alt="头像预览" />
+          <div v-else class="avatar-placeholder">暂无头像</div>
+        </div>
+        <div class="avatar-upload">
+          <label class="upload-label">
+            <input type="file" accept="image/jpeg,image/png,image/gif,image/webp,image/bmp" @change="onAvatarFileChange" hidden />
+            选择图片
+          </label>
+          <p class="upload-tip">支持 jpeg/png/gif/webp/bmp，最大5MB</p>
+        </div>
+        <div class="modal-actions">
+          <button class="btn-confirm" @click="uploadAvatar" :disabled="!avatarFile || uploadingAvatar">
+            {{ uploadingAvatar ? '上传中...' : '保存' }}
+          </button>
+          <button class="btn-cancel" @click="closeAvatarModal">取消</button>
+        </div>
+      </div>
+    </div>
+
     <div class="profile-card">
       <div class="profile-header">
-        <div class="avatar">
-          <span>👤</span>
+        <div class="avatar" @click="onAvatarClick" title="点击更换头像">
+          <img v-if="userInfo.avatar_url" :src="userInfo.avatar_url" alt="头像" class="avatar-img" />
+          <span v-else class="avatar-emoji">👤</span>
         </div>
         <div class="user-info">
           <h2>{{ isAdmin ? authStore.account : (authStore.nickname || authStore.account) }}</h2>
@@ -375,9 +693,14 @@ async function deleteMyRecipe(recipeId: number) {
     </div>
 
     <!-- 新增食谱弹窗 -->
-    <div v-if="showRecipeForm" class="modal-overlay" @click="showRecipeForm = false">
+    <div v-if="showRecipeForm" class="modal-overlay" @click="isAccidentalClose = true; showRecipeForm = false">
       <div class="modal" @click.stop style="max-width: 700px; max-height: 90vh; overflow-y: auto;">
         <h3>{{ editingRecipeId ? '编辑食谱' : '创建食谱' }}</h3>
+        <div v-if="savedRecipeForm.name && !editingRecipeId" style="margin-bottom: 1rem;">
+          <button class="btn-add" @click="openMyRecipeCreate()">
+            继续填写 →
+          </button>
+        </div>
         <div class="form-group">
           <label>食谱名称 *</label>
           <input v-model="recipeForm.name" type="text" placeholder="如: 红烧肉" />
@@ -479,7 +802,8 @@ async function deleteMyRecipe(recipeId: number) {
 
         <div class="modal-actions">
           <button class="btn-confirm" @click="saveMyRecipe">{{ editingRecipeId ? '保存修改' : '创建食谱' }}</button>
-          <button class="btn-cancel" @click="showRecipeForm = false">取消</button>
+          <button class="btn-save-draft" @click="saveRecipeDraft">保存草稿</button>
+          <button class="btn-cancel" @click="closeRecipeForm">取消</button>
         </div>
       </div>
     </div>
@@ -491,6 +815,100 @@ async function deleteMyRecipe(recipeId: number) {
   max-width: 800px;
   margin: 0 auto;
 }
+
+/* 剪贴板提示 */
+.clipboard-toast {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2000;
+  background: #4caf50;
+  color: white;
+  padding: 0.6rem 1rem;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(76, 175, 80, 0.3);
+  font-size: 0.9rem;
+}
+
+.clipboard-content {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.clipboard-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.clipboard-actions .btn-confirm {
+  background: white;
+  color: #4caf50;
+  padding: 0.3rem 0.8rem;
+  font-size: 0.85rem;
+}
+
+.clipboard-actions .btn-cancel {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  padding: 0.3rem 0.8rem;
+  font-size: 0.85rem;
+}
+
+/* 头像弹窗 */
+.avatar-modal {
+  text-align: center;
+}
+
+.avatar-preview {
+  width: 150px;
+  height: 150px;
+  margin: 1rem auto;
+  border-radius: 50%;
+  overflow: hidden;
+  background: #f5f5f5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.avatar-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.avatar-placeholder {
+  color: #999;
+  font-size: 3rem;
+}
+
+.avatar-upload {
+  margin: 1rem 0;
+}
+
+.upload-label {
+  display: inline-block;
+  padding: 0.6rem 1.2rem;
+  background: #4caf50;
+  color: white;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.3s;
+}
+
+.upload-label:hover {
+  background: #43a047;
+}
+
+.upload-tip {
+  font-size: 0.8rem;
+  color: #999;
+  margin-top: 0.5rem;
+}
+
+/* 头像弹窗样式在 profile-page 下方 */
 
 /* 行输入框 */
 .line-input {
@@ -661,6 +1079,19 @@ async function deleteMyRecipe(recipeId: number) {
   cursor: pointer;
 }
 
+.btn-save-draft {
+  padding: 0.6rem 1rem;
+  background: #fff3e0;
+  color: #f57c00;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.btn-save-draft:hover {
+  background: #ffe0b2;
+}
+
 .btn-cancel {
   padding: 0.6rem 1rem;
   background: #e0e0e0;
@@ -693,6 +1124,16 @@ async function deleteMyRecipe(recipeId: number) {
   display: flex;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
+}
+
+.avatar .avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.avatar .avatar-emoji {
   font-size: 2.5rem;
 }
 

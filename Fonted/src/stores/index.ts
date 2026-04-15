@@ -5,13 +5,31 @@ import router from '../router'
 
 export const useAuthStore = defineStore('auth', () => {
   const token = ref(localStorage.getItem('token') || '')
-  const account = ref(localStorage.getItem('account') || '')
   const isAdmin = ref(false)
   const adminLevel = ref<number | null>(null)
   const nickname = ref('')
+  const avatarUrl = ref<string | null>(null)
+  const userInfo = ref<any>(null)  // 完整用户信息
   const initialized = ref(false)
 
   const isLoggedIn = computed(() => !!token.value)
+
+  // 从token中解析account（JWT payload中的sub字段）
+  function getAccountFromToken(): string {
+    try {
+      const payload = token.value.split('.')[1]
+      if (payload) {
+        const decoded = JSON.parse(atob(payload))
+        return decoded.sub || ''
+      }
+    } catch (e) {
+      console.error('解析token失败', e)
+    }
+    return ''
+  }
+
+  // 响应式account（从token解析）
+  const account = computed(() => getAccountFromToken())
 
   // 配置axios默认headers
   if (token.value) {
@@ -21,12 +39,10 @@ export const useAuthStore = defineStore('auth', () => {
   async function login(accountVal: string, password: string) {
     const res = await axios.post('/api/auth/login', { account: accountVal, password: password })
     token.value = res.data.access_token
-    account.value = res.data.account
     localStorage.setItem('token', token.value)
-    localStorage.setItem('account', account.value)
     axios.defaults.headers.common['Authorization'] = `Bearer ${token.value}`
-    // 登录后立即验证身份
-    await init()
+    // 登录后强制重新初始化（可能之前已经 initialized，需强制刷新身份）
+    await init(true)
     return res.data
   }
 
@@ -36,21 +52,25 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   function logout() {
+    // 清除所有用户状态
     token.value = ''
-    account.value = ''
     isAdmin.value = false
     adminLevel.value = null
     nickname.value = ''
+    avatarUrl.value = null
+    userInfo.value = null
+
+    // 标记为已初始化（退出后需要重新初始化）
     initialized.value = false
+
     localStorage.removeItem('token')
-    localStorage.removeItem('account')
     delete axios.defaults.headers.common['Authorization']
     router.push('/login')
   }
 
-  async function init() {
-    // 防止重复调用
-    if (initialized.value) return
+  async function init(force: boolean = false) {
+    // 防止重复调用（除非强制刷新）
+    if (initialized.value && !force) return
 
     if (token.value) {
       // 设置token到axios headers
@@ -62,7 +82,6 @@ export const useAuthStore = defineStore('auth', () => {
         if (checkRes.data.is_admin) {
           isAdmin.value = true
           adminLevel.value = checkRes.data.admin_level
-          account.value = localStorage.getItem('account') || ''
           nickname.value = ''
           initialized.value = true
           return
@@ -77,8 +96,9 @@ export const useAuthStore = defineStore('auth', () => {
         const res = await axios.get('/api/users/me')
         isAdmin.value = false
         adminLevel.value = null
-        account.value = res.data.account
         nickname.value = res.data.nickname || ''
+        avatarUrl.value = res.data.avatar_url || null
+        userInfo.value = res.data  // 保存完整用户信息
         initialized.value = true
         return
       } catch (e: any) {
@@ -87,10 +107,16 @@ export const useAuthStore = defineStore('auth', () => {
       }
     }
 
-    // 没有token或登录状态失效
+    // 没有token，设置已初始化状态（不自动登出，避免循环）
+    if (!token.value) {
+      initialized.value = true
+      return
+    }
+
+    // 有token但登录状态失效
     logout()
     initialized.value = true
   }
 
-  return { token, account, isAdmin, adminLevel, nickname, isLoggedIn, initialized, login, register, logout, init }
+  return { token, account, isAdmin, adminLevel, nickname, avatarUrl, userInfo, isLoggedIn, initialized, login, register, logout, init }
 })

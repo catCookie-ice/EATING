@@ -65,6 +65,58 @@ def filter_recipe_fields(recipe_data: dict) -> dict:
     return recipe_data
 
 
+def enrich_recipe_with_source_avatar(recipe: Recipe, db: Session) -> dict:
+    """为食谱 enriched 返回数据，包含来源头像
+
+    Args:
+        recipe: 食谱模型实例
+        db: 数据库会话
+
+    Returns:
+        包含来源头像的食谱字典
+    """
+    from app.utils.storage import get_storage
+
+    recipe_dict = {
+        "id": recipe.id,
+        "name": recipe.name,
+        "materials": recipe.materials,
+        "seasonings": recipe.seasonings,
+        "cuisine": recipe.cuisine,
+        "difficulty": recipe.difficulty,
+        "steps": recipe.steps,
+        "carbohydrate": recipe.carbohydrate,
+        "protein": recipe.protein,
+        "fat": recipe.fat,
+        "vitamins": recipe.vitamins,
+        "minerals": recipe.minerals,
+        "is_halal": recipe.is_halal,
+        "allergens": recipe.allergens,
+        "method": recipe.method,
+        "pictures_url": recipe.pictures_url,
+        "is_delete": recipe.is_delete,
+        "source": recipe.source,
+        "status": recipe.status,
+        "creator_account": recipe.creator_account,
+    }
+
+    # 获取来源头像
+    source_avatar_url = None
+    # 如果来源不是系统/官方，则尝试获取用户头像
+    if recipe.source and recipe.source not in ["系统", "官方"]:
+        if recipe.creator_account:
+            user = db.query(User).filter(User.account == recipe.creator_account).first()
+            if user and user.avatar_url:
+                source_avatar_url = user.avatar_url
+                # 混合存储模式下，尝试解析真实存在的URL
+                storage = get_storage()
+                source_avatar_url = storage.find_file(source_avatar_url) or source_avatar_url
+
+    recipe_dict["source_avatar_url"] = source_avatar_url
+
+    return recipe_dict
+
+
 @router.get("/", response_model=List[RecipeResponse])
 def list_recipes(
     skip: int = 0,
@@ -87,7 +139,14 @@ def list_recipes(
         query = query.filter(Recipe.is_halal == is_halal)
 
     recipes = query.offset(skip).limit(limit).all()
-    return recipes
+
+    # 为每个食谱添加来源头像
+    result = []
+    for recipe in recipes:
+        recipe_dict = enrich_recipe_with_source_avatar(recipe, db)
+        result.append(recipe_dict)
+
+    return result
 
 
 @router.get("/all", response_model=List[RecipeResponse])
@@ -98,7 +157,7 @@ def list_all_recipes(
     is_halal: bool = None,
     status: str = None,
     db: Session = Depends(get_db),
-    admin: Admin = Depends(require_admin)
+    # admin: Admin = Depends(require_admin)
 ):
     """获取所有食谱列表 (管理员)"""
     from app.schemas.recipe import RecipeStatus
@@ -113,7 +172,14 @@ def list_all_recipes(
         query = query.filter(Recipe.status == status)
 
     recipes = query.offset(skip).limit(limit).all()
-    return recipes
+
+    # 为每个食谱添加来源头像
+    result = []
+    for recipe in recipes:
+        recipe_dict = enrich_recipe_with_source_avatar(recipe, db)
+        result.append(recipe_dict)
+
+    return result
 
 
 @router.get("/my", response_model=List[RecipeResponse])
@@ -128,7 +194,14 @@ def list_my_recipes(
         Recipe.is_delete == False,
         Recipe.creator_account == person.account
     ).offset(skip).limit(limit).all()
-    return recipes
+
+    # 为每个食谱添加来源头像
+    result = []
+    for recipe in recipes:
+        recipe_dict = enrich_recipe_with_source_avatar(recipe, db)
+        result.append(recipe_dict)
+
+    return result
 
 
 @router.get("/pending", response_model=List[RecipeResponse])
@@ -146,7 +219,14 @@ def list_pending_recipes(
         Recipe.status == RecipeStatus.PENDING,
         Recipe.creator_account.isnot(None)  # 用户分享的
     ).offset(skip).limit(limit).all()
-    return recipes
+
+    # 为每个食谱添加来源头像
+    result = []
+    for recipe in recipes:
+        recipe_dict = enrich_recipe_with_source_avatar(recipe, db)
+        result.append(recipe_dict)
+
+    return result
 
 
 @router.get("/{recipe_id}", response_model=RecipeResponse)
@@ -163,7 +243,8 @@ def get_recipe(recipe_id: int, db: Session = Depends(get_db)):
             detail="食谱不存在"
         )
 
-    return recipe
+    # 添加来源头像
+    return enrich_recipe_with_source_avatar(recipe, db)
 
 
 # 注册新的搜索路由

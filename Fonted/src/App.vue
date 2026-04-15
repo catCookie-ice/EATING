@@ -2,12 +2,22 @@
 import { RouterView, RouterLink, useRoute } from 'vue-router'
 import { useAuthStore } from './stores'
 import { computed, onMounted } from 'vue'
+import { watch } from 'vue'
 
 const auth = useAuthStore()
 const route = useRoute()
 
+// 监听路由变化，当跳转到login时立即标记为已初始化
+watch(() => route.path, (newPath) => {
+  if (newPath === '/login') {
+    auth.initialized = true
+  }
+}, { immediate: true })
+
 onMounted(() => {
-  auth.init()
+  if (route.path !== '/login') {
+    auth.init()
+  }
 })
 
 // 使用 computed 确保响应式
@@ -20,12 +30,22 @@ const hideNav = computed(() => {
   const path = route.path
   return path.startsWith('/recipes/') || path.startsWith('/ingredients/')
 })
+
+// login页面不需要等待初始化
+const showLoading = computed(() => {
+  // login页面直接不显示loading
+  if (route.path === '/login') return false
+  // 没有token也不需要等待
+  if (!auth.token) return false
+  // 需要认证但未初始化
+  return !auth.initialized
+})
 </script>
 
 <template>
   <div class="app-container">
-    <!-- Loading 状态 -->
-    <div v-if="!auth.initialized" class="loading-container">
+    <!-- Loading 状态：只在需要认证的页面显示 -->
+    <div v-if="showLoading" class="loading-container">
       <div class="loading">加载中...</div>
     </div>
 

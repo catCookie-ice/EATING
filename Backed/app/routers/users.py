@@ -13,9 +13,45 @@ from app.schemas.user import UserCreate, UserUpdate, UserResponse, UserResponseF
 from app.dependencies import get_current_user, get_current_admin, require_admin
 from app.utils.crypto import encrypt_contact, decrypt_contact
 from app.utils.text_filter import TextFilter
+from app.utils.storage import get_storage
 from app.routers.auth import validate_taste, validate_optional_field, validate_gender
 
 router = APIRouter(prefix="/users", tags=["用户"])
+
+
+def enrich_user_with_avatar_url(user: User, db: Session) -> dict:
+    """为用户 enriched 返回数据，包含解析后的头像URL
+
+    Args:
+        user: 用户模型实例
+        db: 数据库会话
+
+    Returns:
+        包含解析后头像URL的用户字典
+    """
+    user_dict = {
+        "id": user.id,
+        "account": user.account,
+        "nickname": user.nickname,
+        "gender": user.gender,
+        "age": user.age,
+        "taste": user.taste,
+        "is_halal": user.is_halal,
+        "allergens": user.allergens,
+        "created_at": user.created_at.isoformat() if user.created_at else None,
+        "browse_history": user.browse_history,
+        "favorite_records": user.favorite_records,
+    }
+
+    # 解析头像URL（混合存储模式下尝试找到真实存在的URL）
+    if user.avatar_url:
+        storage = get_storage()
+        resolved_url = storage.find_file(user.avatar_url)
+        user_dict["avatar_url"] = resolved_url or user.avatar_url
+    else:
+        user_dict["avatar_url"] = None
+
+    return user_dict
 
 
 @router.get("/me", response_model=UserResponseFull)
@@ -30,7 +66,8 @@ def get_current_user_info(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="用户信息不存在"
         )
-    return user
+    # 添加解析后的头像URL
+    return enrich_user_with_avatar_url(user, db)
 
 
 @router.get("/{account}", response_model=UserResponse)
@@ -45,7 +82,8 @@ def get_user(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="用户不存在"
         )
-    return user
+    # 添加解析后的头像URL
+    return enrich_user_with_avatar_url(user, db)
 
 
 @router.put("/me", response_model=UserResponseFull)
@@ -293,8 +331,8 @@ def add_favorite_recipe(
             detail="用户信息不存在"
         )
 
-    # 获取现有收藏记录
-    favorites = user.favorite_records or []
+    # 获取现有收藏记录（使用list()创建副本，避免修改原始引用）
+    favorites = list(user.favorite_records) if user.favorite_records else []
 
     # 检查是否已经收藏过
     for fav in favorites:
@@ -309,8 +347,11 @@ def add_favorite_recipe(
     if len(favorites) > 30:
         favorites = favorites[:30]
 
+    # 使用 flush + commit 确保变更写入
     user.favorite_records = favorites
+    db.flush()
     db.commit()
+    db.refresh(user)
 
     return {"message": "收藏成功", "is_favorited": True}
 
@@ -329,12 +370,14 @@ def remove_favorite_recipe(
             detail="用户信息不存在"
         )
 
-    favorites = user.favorite_records or []
+    favorites = list(user.favorite_records) if user.favorite_records else []
 
     # 移除收藏记录
     new_favorites = [fav for fav in favorites if fav.get("recipe_id") != recipe_id]
     user.favorite_records = new_favorites
+    db.flush()
     db.commit()
+    db.refresh(user)
 
     return {"message": "取消收藏成功", "is_favorited": False}
 
@@ -397,7 +440,7 @@ def record_browse_history(
         )
 
     # 获取现有浏览记录
-    history = user.browse_history or []
+    history = list(user.browse_history) if user.browse_history else []
 
     # 移除同一食谱的旧浏览记录
     new_history = [h for h in history if h.get("recipe_id") != recipe_id]
@@ -410,6 +453,8 @@ def record_browse_history(
         new_history = new_history[:50]
 
     user.browse_history = new_history
+    db.flush()
     db.commit()
+    db.refresh(user)
 
     return {"message": "浏览记录已保存"}

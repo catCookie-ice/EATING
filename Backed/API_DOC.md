@@ -94,13 +94,15 @@
 - **功能**: 获取当前用户信息
 - **权限**: 登录用户
 - **前端请求URL**: `GET http://localhost:8000/api/users/me`
-- **返回**: 当前用户的完整信息
+- **返回说明**:
+  - `avatar_url`: 用户头像URL（混合存储模式下会自动解析为实际存在的URL）
 
 ### GET /api/users/{account}
 - **功能**: 获取指定用户公开信息
 - **权限**: 公开
 - **前端请求URL**: `GET http://localhost:8000/api/users/{account}`
-- **返回**: 用户公开信息
+- **返回说明**:
+  - `avatar_url`: 用户头像URL（混合存储模式下会自动解析为实际存在的URL）
 
 ### PUT /api/users/me
 - **功能**: 更新当前用户信息
@@ -177,32 +179,74 @@
   - `cuisine`: 菜系筛选
   - `is_halal`: 清真筛选
 - **示例**: `GET http://localhost:8000/api/recipes/?skip=0&limit=10&cuisine=川菜`
+- **返回说明**:
+  - `pictures_url`: 食谱封面图片列表（最多3个，混合存储模式下会自动解析为实际存在的URL）
+  - `source`: 来源（"系统"或用户昵称）
+  - `source_avatar_url`: 来源头像URL（如果来源不是"系统"或"官方"，会返回创建者的头像）
 
 ### GET /api/recipes/all
 - **功能**: 获取所有食谱列表
 - **权限**: 管理员
 - **前端请求URL**: `GET http://localhost:8000/api/recipes/all`
+- **返回说明**:
+  - `pictures_url`: 食谱封面图片列表
+  - `source`: 来源
+  - `source_avatar_url`: 来源头像URL
 
 ### GET /api/recipes/my
 - **功能**: 获取当前用户的食谱列表
 - **权限**: 登录用户
 - **前端请求URL**: `GET http://localhost:8000/api/recipes/my`
 - **返回**: 包括私密的食谱
+- **返回说明**:
+  - `pictures_url`: 食谱封面图片列表
+  - `source`: 来源
+  - `source_avatar_url`: 来源头像URL
 
 ### GET /api/recipes/pending
 - **功能**: 获取待审核的食谱列表
 - **权限**: 管理员
 - **前端请求URL**: `GET http://localhost:8000/api/recipes/pending`
+- **返回说明**:
+  - `pictures_url`: 食谱封面图片列表
+  - `source`: 来源
+  - `source_avatar_url`: 来源头像URL
 
 ### GET /api/recipes/{recipe_id}
 - **功能**: 获取单个食谱
 - **权限**: 公开
 - **前端请求URL**: `GET http://localhost:8000/api/recipes/{recipe_id}`
+- **返回说明**:
+  - `pictures_url`: 食谱封面图片列表（最多3个）
+  - `source`: 来源（"系统"或用户昵称）
+  - `source_avatar_url`: 来源头像URL（如果来源不是"系统"或"官方"，会返回创建者的头像）
 
 ### POST /api/recipes/
 - **功能**: 创建食谱（管理员创建，系统来源）
 - **权限**: 管理员
 - **前端请求URL**: `POST http://localhost:8000/api/recipes/`
+- **请求参数** (JSON):
+  ```json
+  {
+    "name": "菜品名称",
+    "materials": [{"材料名": "材料1", "重量": "100g"}],
+    "seasonings": [{"调料名": "盐", "用量": "适量"}],
+    "cuisine": "川菜",
+    "difficulty": 5,
+    "steps": [{"时刻": "1", "操作": "准备食材"}],
+    "carbohydrate": 10.5,
+    "protein": 20.3,
+    "fat": 5.6,
+    "vitamins": ["维生素A"],
+    "minerals": ["钙"],
+    "is_halal": false,
+    "allergens": ["虾"],
+    "method": "炒",
+    "pictures_url": ["封面图1URL", "封面图2URL", "封面图3URL"]
+  }
+  ```
+- **备注**:
+  - `pictures_url` 最多支持3个URL，超过3个会自动截断
 
 ### POST /api/recipes/my
 - **功能**: 用户创建自己的食谱
@@ -291,16 +335,35 @@
   - `skip`: 跳过条数
   - `limit`: 返回条数
   - `category`: 分类筛选
+- **返回说明**:
+  - `picture_url`: 食材封面图片URL（混合存储模式下会自动解析为实际存在的URL）
 
 ### GET /api/ingredients/{ingredient_id}
 - **功能**: 获取单个食材
 - **权限**: 公开
 - **前端请求URL**: `GET http://localhost:8000/api/ingredients/{ingredient_id}`
+- **返回说明**:
+  - `picture_url`: 食材封面图片URL（混合存储模式下会自动解析为实际存在的URL）
 
 ### POST /api/ingredients/
 - **功能**: 创建食材
 - **权限**: 管理员
 - **前端请求URL**: `POST http://localhost:8000/api/ingredients/`
+- **请求参数** (JSON):
+  ```json
+  {
+    "name": ["食材名称"],
+    "carbohydrate": 碳水含量,
+    "protein": 蛋白质含量,
+    "fat": 脂肪含量,
+    "vitamins": ["维生素列表"],
+    "minerals": ["矿物质列表"],
+    "category": "食材种类",
+    "is_halal": false,
+    "is_allergen": false,
+    "picture_url": "封面图片URL（可选）"
+  }
+  ```
 
 ### PUT /api/ingredients/{ingredient_id}
 - **功能**: 更新食材
@@ -311,6 +374,57 @@
 - **功能**: 删除食材（软删除）
 - **权限**: 管理员
 - **前端请求URL**: `DELETE http://localhost:8000/api/ingredients/{ingredient_id}`
+
+---
+
+## 文件上传接口 (/upload)
+
+### GET /api/upload/test
+- **功能**: 测试存储服务配置
+- **权限**: 公开
+- **前端请求URL**: `GET http://localhost:8000/api/upload/test`
+- **返回**:
+  ```json
+  {
+    "storage_type": "local",
+    "cloud_configured": false,
+    "local_upload_dir": "uploads",
+    "status": "ok"
+  }
+  ```
+
+### POST /api/upload/image
+- **功能**: 上传图片文件
+- **权限**: 登录用户
+- **前端请求URL**: `POST http://localhost:8000/api/upload/image`
+- **请求参数** (Form-Data):
+  - `file`: 图片文件（必填，支持 jpeg/png/gif/webp/bmp，最大5MB）
+- **返回**:
+  ```json
+  {
+    "url": "图片URL",
+    "filename": "原始文件名",
+    "size": 文件大小,
+    "content_type": "image/jpeg"
+  }
+  ```
+
+### POST /api/upload/avatar
+- **功能**: 上传用户头像
+- **权限**: 登录用户
+- **前端请求URL**: `POST http://localhost:8000/api/upload/avatar`
+- **请求参数** (Form-Data):
+  - `file`: 图片文件（必填，支持 jpeg/png/gif/webp/bmp，最大5MB）
+- **返回**: 同 `POST /api/upload/image`
+
+### POST /api/upload/cover
+- **功能**: 上传封面图片
+- **权限**: 登录用户
+- **前端请求URL**: `POST http://localhost:8000/api/upload/cover`
+- **请求参数** (Form-Data):
+  - `file`: 图片文件（必填，支持 jpeg/png/gif/webp/bmp，最大5MB）
+- **返回**: 同 `POST /api/upload/image`
+- **备注**: 可用于食材封面或食谱封面
 
 ---
 
@@ -365,6 +479,44 @@
 - **功能**: 重置管理员密码
 - **权限**: 0级管理员
 - **前端请求URL**: `POST http://localhost:8000/api/admins/reset-password`
+
+---
+
+## 存储配置说明
+
+### 配置项（.env 文件）
+
+```properties
+# 存储类型：cloud(云存储) / local(本地存储) / mixed(混合存储)
+STORAGE_TYPE=local
+
+# 腾讯云COS配置（云存储或混合存储时需要配置）
+COS_SECRET_ID=your-secret-id
+COS_SECRET_KEY=your-secret-key
+COS_BUCKET=your-bucket-name
+COS_REGION=ap-guangzhou
+# 云存储URL过期时间(秒)，默认3600秒
+COS_URL_EXPIRE_SECONDS=3600
+
+# 本地存储配置
+LOCAL_UPLOAD_DIR=uploads
+LOCAL_BASE_URL=/uploads
+```
+
+### 存储类型说明
+
+| 类型 | 说明 |
+|------|------|
+| `local` | 本地文件系统存储，文件保存在 `uploads` 目录 |
+| `cloud` | 腾讯云COS存储，需要配置COS_SECRET_ID、COS_SECRET_KEY、COS_BUCKET、COS_REGION |
+| `mixed` | 混合存储，优先上传到云存储，失败则使用本地存储；查找时优先查云，云上没有则查本地 |
+
+### 混合存储查找逻辑
+
+当使用混合存储模式时，获取用户头像、食材封面、食谱封面等图片时：
+1. 优先在云存储中查找图片
+2. 如果云存储中没有，则在本地存储中查找
+3. 返回实际存在的图片URL
 
 ---
 

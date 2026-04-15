@@ -9,3 +9,4 @@ bcrypt
 python-jose[cryptography]
 python-multipart
 passlib
+cos-python-sdk-v5

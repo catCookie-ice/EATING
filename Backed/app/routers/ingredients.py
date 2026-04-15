@@ -1,7 +1,7 @@
 """食材路由"""
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 
 from app.database import get_db
 from app.models.ingredient import Ingredient
@@ -10,8 +10,44 @@ from app.models.admin import Admin
 from app.schemas.ingredient import IngredientCreate, IngredientUpdate, IngredientResponse
 from app.dependencies import require_admin
 from app.utils.text_filter import TextFilter
+from app.utils.storage import get_storage
 
 router = APIRouter(prefix="/ingredients", tags=["食材"])
+
+
+def enrich_ingredient_with_picture_url(ingredient: Ingredient, db: Session) -> dict:
+    """为食材 enriched 返回数据，包含解析后的封面图片URL
+
+    Args:
+        ingredient: 食材模型实例
+        db: 数据库会话
+
+    Returns:
+        包含解析后封面URL的食材字典
+    """
+    ingredient_dict = {
+        "id": ingredient.id,
+        "name": ingredient.name,
+        "carbohydrate": ingredient.carbohydrate,
+        "protein": ingredient.protein,
+        "fat": ingredient.fat,
+        "vitamins": ingredient.vitamins,
+        "minerals": ingredient.minerals,
+        "category": ingredient.category,
+        "is_halal": ingredient.is_halal,
+        "is_allergen": ingredient.is_allergen,
+        "is_delete": ingredient.is_delete,
+    }
+
+    # 解析封面图片URL（混合存储模式下尝试找到真实存在的URL）
+    if ingredient.picture_url:
+        storage = get_storage()
+        resolved_url = storage.find_file(ingredient.picture_url)
+        ingredient_dict["picture_url"] = resolved_url or ingredient.picture_url
+    else:
+        ingredient_dict["picture_url"] = None
+
+    return ingredient_dict
 
 
 @router.get("/", response_model=List[IngredientResponse])
@@ -28,7 +64,14 @@ def list_ingredients(
         query = query.filter(Ingredient.category == category)
 
     ingredients = query.offset(skip).limit(limit).all()
-    return ingredients
+
+    # 为每个食材添加解析后的封面URL
+    result = []
+    for ingredient in ingredients:
+        ingredient_dict = enrich_ingredient_with_picture_url(ingredient, db)
+        result.append(ingredient_dict)
+
+    return result
 
 
 @router.get("/{ingredient_id}", response_model=IngredientResponse)
@@ -45,7 +88,8 @@ def get_ingredient(ingredient_id: int, db: Session = Depends(get_db)):
             detail="食材不存在"
         )
 
-    return ingredient
+    # 添加解析后的封面URL
+    return enrich_ingredient_with_picture_url(ingredient, db)
 
 
 # 这个接口需要重启后端才能生效

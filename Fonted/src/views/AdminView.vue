@@ -411,7 +411,7 @@ async function deleteRecipe(id: number) {
 
 async function toggleRecipeVisibility(id: number, currentStatus: boolean) {
   try {
-    await axios.put(`/api/recipes/${id}/visibility`, { is_public: !currentStatus }, { headers: { Authorization: `Bearer ${authStore.token}` } })
+    await axios.put(`/api/recipes/${id}/visibility`, { status: currentStatus ? 'private' : 'public' }, { headers: { Authorization: `Bearer ${authStore.token}` } })
     // 刷新列表
     const res = await axios.get('/api/recipes/all', { headers: { Authorization: `Bearer ${authStore.token}` } })
     allRecipes.value = res.data

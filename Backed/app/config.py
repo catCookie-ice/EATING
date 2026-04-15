@@ -1,5 +1,13 @@
 from pydantic_settings import BaseSettings
 from typing import Optional, List
+from enum import Enum
+
+
+class StorageType(str, Enum):
+    """存储类型枚举"""
+    CLOUD = "cloud"      # 云存储
+    LOCAL = "local"      # 本地存储
+    MIXED = "mixed"      # 混合存储
 
 
 class Settings(BaseSettings):
@@ -14,6 +22,18 @@ class Settings(BaseSettings):
     # Admin default
     ADMIN_0_ACCOUNT: str = "a7s90001"
     ADMIN_0_PASSWORD: str = "admin0000"
+
+    # 存储配置
+    STORAGE_TYPE: StorageType = StorageType.LOCAL  # 存储类型：cloud/local/mixed
+    # 腾讯云COS配置
+    COS_SECRET_ID: Optional[str] = None  # 腾讯云SecretId
+    COS_SECRET_KEY: Optional[str] = None  # 腾讯云SecretKey
+    COS_BUCKET: Optional[str] = None  # COS桶名称
+    COS_REGION: Optional[str] = None  # COS区域
+    COS_URL_EXPIRE_SECONDS: int = 3600  # 云存储URL过期时间(秒)
+    # 本地存储配置
+    LOCAL_UPLOAD_DIR: str = "uploads"  # 本地上传目录
+    LOCAL_BASE_URL: str = "/uploads"  # 本地存储基础URL
 
     # 食材类别枚举
     INGREDIENT_CATEGORIES: List[str] = ["肉", "蛋", "蔬菜", "水果","奶制品","谷物",'豆类', '坚果',"海鲜","其他"]

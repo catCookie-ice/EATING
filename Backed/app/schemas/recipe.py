@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, ConfigDict, field_validator
+from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator
 from typing import Optional, List, Dict, Any
 from enum import Enum
 from app.config import settings
@@ -41,7 +41,7 @@ class RecipeBase(BaseModel):
     is_halal: bool = Field(False, description="是否清真")
     allergens: Optional[List[str]] = Field(None, description="过敏食材列表")
     method: Optional[str] = Field(None, description="烹饪方式: 蒸/煮/炸/炒/焖/拌/卤/烤/煎/腌/其他")
-    pictures_url: Optional[List[str]] = Field(None, description="展示图片地址列表")
+    pictures_url: Optional[List[str]] = Field(None, description="展示图片地址列表，最多3个")
 
     @field_validator('cuisine', mode='before')
     @classmethod
@@ -69,6 +69,12 @@ class RecipeBase(BaseModel):
             return round(v, 2)
         return v
 
+    @model_validator(mode='after')
+    def validate_pictures_url(self):
+        if self.pictures_url and len(self.pictures_url) > 3:
+            self.pictures_url = self.pictures_url[:3]
+        return self
+
 
 class RecipeCreate(RecipeBase):
     status: Optional[RecipeStatus] = Field(RecipeStatus.PRIVATE, description="状态: private(私密)/public(公开)/pending(待审核)")
@@ -90,7 +96,7 @@ class RecipeUpdate(BaseModel):
     allergens: Optional[List[str]] = Field(None, description="过敏食材列表")
     status: Optional[RecipeStatus] = Field(None, description="状态: private(私密)/public(公开)/pending(待审核)")
     method: Optional[str] = Field(None, description="烹饪方式: 蒸/煮/炸/炒/焖/拌/卤/烤/煎/腌/其他")
-    pictures_url: Optional[List[str]] = Field(None, description="展示图片地址列表")
+    pictures_url: Optional[List[str]] = Field(None, description="展示图片地址列表，最多3个")
 
     @field_validator('cuisine', mode='before')
     @classmethod
@@ -127,6 +133,7 @@ class RecipeResponse(RecipeBase):
     status: RecipeStatus = Field(RecipeStatus.PRIVATE, description="状态: private(私密)/public(公开)/pending(待审核)")
     creator_account: Optional[str] = Field(None, description="创建者账户")
     method: Optional[str] = Field(None, description="烹饪方式: 蒸/煮/炸/炒/焖/拌/卤/烤/煎/腌/其他")
-    pictures_url: Optional[List[str]] = Field(None, description="展示图片地址列表")
+    pictures_url: Optional[List[str]] = Field(None, description="展示图片地址列表，最多3个")
+    source_avatar_url: Optional[str] = Field(None, description="来源头像URL（如果来源不是系统或官方）")
 
     model_config = ConfigDict(from_attributes=True)
