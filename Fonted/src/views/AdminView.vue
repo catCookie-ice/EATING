@@ -60,9 +60,15 @@ const recipeForm = ref({
   is_halal: false,
   allergens: [] as string[],
   vitamins: [] as string[],
-  minerals: [] as string[]
+  minerals: [] as string[],
+  pictures_url: [] as string[]
 })
 let savedRecipeForm = JSON.parse(JSON.stringify(recipeForm.value))
+
+// 封面上传相关
+const recipeCoverPreview = ref('')
+const recipeCoverFile = ref<File | null>(null)
+const uploadingRecipeCover = ref(false)
 
 // 标签输入
 const newAllergen = ref('')
@@ -96,9 +102,15 @@ const ingredientForm = ref({
   is_halal: false,
   is_allergen: false,
   vitamins: '',
-  minerals: ''
+  minerals: '',
+  picture_url: ''
 })
 let savedIngredientForm = JSON.parse(JSON.stringify(ingredientForm.value))
+
+// 封面上传相关
+const ingredientCoverPreview = ref('')
+const ingredientCoverFile = ref<File | null>(null)
+const uploadingIngredientCover = ref(false)
 
 // 用于标记是否意外关闭（点击弹窗外部）
 let isAccidentalClose: boolean = false
@@ -409,9 +421,10 @@ async function deleteRecipe(id: number) {
   }
 }
 
-async function toggleRecipeVisibility(id: number, currentStatus: boolean) {
+async function toggleRecipeVisibility(id: number, currentStatus: string) {
   try {
-    await axios.put(`/api/recipes/${id}/visibility`, { status: currentStatus ? 'private' : 'public' }, { headers: { Authorization: `Bearer ${authStore.token}` } })
+    const newStatus = currentStatus === 'public' ? 'private' : 'public'
+    await axios.put(`/api/recipes/${id}/visibility`, { status: newStatus }, { headers: { Authorization: `Bearer ${authStore.token}` } })
     // 刷新列表
     const res = await axios.get('/api/recipes/all', { headers: { Authorization: `Bearer ${authStore.token}` } })
     allRecipes.value = res.data
@@ -469,9 +482,58 @@ function openIngredientEdit(ing: any) {
     is_halal: ing.is_halal || false,
     is_allergen: ing.is_allergen || false,
     vitamins: ing.vitamins?.join(', ') || '',
-    minerals: ing.minerals?.join(', ') || ''
+    minerals: ing.minerals?.join(', ') || '',
+    picture_url: ing.picture_url || ''
   }
+  ingredientCoverPreview.value = ing.picture_url || ''
   showIngredientForm.value = true
+}
+
+// 上传食材封面图片
+async function uploadIngredientCover(file: File) {
+  if (!file) return
+  const formData = new FormData()
+  formData.append('file', file)
+  uploadingIngredientCover.value = true
+  try {
+    const res = await axios.post('/api/upload/cover', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+    ingredientForm.value.picture_url = res.data.url
+    ingredientCoverPreview.value = ''
+    ingredientCoverFile.value = null
+  } catch (e: any) {
+    alert(e.response?.data?.detail || '封面上传失败')
+  } finally {
+    uploadingIngredientCover.value = false
+  }
+}
+
+// 选择封面图片并直接上传
+async function onIngredientCoverSelect(e: Event) {
+  const target = e.target as HTMLInputElement
+  const file = target.files?.[0]
+  if (file) {
+    const formData = new FormData()
+    formData.append('file', file)
+    uploadingIngredientCover.value = true
+    try {
+      const res = await axios.post('/api/upload/cover', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      })
+      ingredientForm.value.picture_url = res.data.url
+    } catch (e: any) {
+      alert(e.response?.data?.detail || '封面上传失败')
+    } finally {
+      uploadingIngredientCover.value = false
+      target.value = ''
+    }
+  }
+}
+
+// 删除封面
+function removeIngredientCover() {
+  ingredientForm.value.picture_url = ''
 }
 
 async function saveIngredient() {
@@ -485,7 +547,8 @@ async function saveIngredient() {
       is_halal: ingredientForm.value.is_halal,
       is_allergen: ingredientForm.value.is_allergen,
       vitamins: ingredientForm.value.vitamins ? ingredientForm.value.vitamins.split(',').map(s => s.trim()).filter(Boolean) : [],
-      minerals: ingredientForm.value.minerals ? ingredientForm.value.minerals.split(',').map(s => s.trim()).filter(Boolean) : []
+      minerals: ingredientForm.value.minerals ? ingredientForm.value.minerals.split(',').map(s => s.trim()).filter(Boolean) : [],
+      picture_url: ingredientForm.value.picture_url
     }
 
     if (editingIngredient.value) {
@@ -506,7 +569,8 @@ async function saveIngredient() {
         is_halal: false,
         is_allergen: false,
         vitamins: '',
-        minerals: ''
+        minerals: '',
+        picture_url: ''
       }
       localStorage.removeItem('ingredient_draft')
     }
@@ -576,7 +640,8 @@ function openRecipeCreate(recipe?: any, restoreDraft: boolean = true) {
       is_halal: recipe.is_halal || false,
       allergens: recipe.allergens || [],
       vitamins: recipe.vitamins || [],
-      minerals: recipe.minerals || []
+      minerals: recipe.minerals || [],
+      pictures_url: recipe.pictures_url || []
     }
   } else {
     // 新建模式：如果有保存的数据且需要恢复
@@ -597,7 +662,8 @@ function openRecipeCreate(recipe?: any, restoreDraft: boolean = true) {
         is_halal: false,
         allergens: [],
         vitamins: [],
-        minerals: []
+        minerals: [],
+        pictures_url: []
       }
       localStorage.removeItem('recipe_draft')
     } else {
@@ -615,7 +681,8 @@ function openRecipeCreate(recipe?: any, restoreDraft: boolean = true) {
         is_halal: false,
         allergens: [],
         vitamins: [],
-        minerals: []
+        minerals: [],
+        pictures_url: []
       }
     }
   }
@@ -646,7 +713,8 @@ function closeRecipeForm(save: boolean = false) {
       is_halal: false,
       allergens: [],
       vitamins: [],
-      minerals: []
+      minerals: [],
+      pictures_url: []
     }
   }
   showRecipeForm.value = false
@@ -667,7 +735,8 @@ function resetRecipeForm() {
     is_halal: false,
     allergens: [],
     vitamins: [],
-    minerals: []
+    minerals: [],
+    pictures_url: []
   }
   savedRecipeForm = JSON.parse(JSON.stringify(recipeForm.value))
 }
@@ -729,6 +798,53 @@ function addMineral() {
     recipeForm.value.minerals.push(newMineral.value.trim())
   }
   newMineral.value = ''
+}
+
+// 上传食谱封面图片
+async function uploadRecipeCover(file: File) {
+  if (!file) return
+  const formData = new FormData()
+  formData.append('file', file)
+  uploadingRecipeCover.value = true
+  try {
+    const res = await axios.post('/api/upload/cover', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+    recipeForm.value.pictures_url.push(res.data.url)
+    recipeCoverPreview.value = ''
+    recipeCoverFile.value = null
+  } catch (e: any) {
+    alert(e.response?.data?.detail || '封面上传失败')
+  } finally {
+    uploadingRecipeCover.value = false
+  }
+}
+
+// 选择封面图片并直接上传
+async function onRecipeCoverSelect(e: Event) {
+  const target = e.target as HTMLInputElement
+  const file = target.files?.[0]
+  if (file) {
+    const formData = new FormData()
+    formData.append('file', file)
+    uploadingRecipeCover.value = true
+    try {
+      const res = await axios.post('/api/upload/cover', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      })
+      recipeForm.value.pictures_url.push(res.data.url)
+    } catch (e: any) {
+      alert(e.response?.data?.detail || '封面上传失败')
+    } finally {
+      uploadingRecipeCover.value = false
+      target.value = ''
+    }
+  }
+}
+
+// 删除封面
+function removeRecipeCover(index: number) {
+  recipeForm.value.pictures_url.splice(index, 1)
 }
 
 function removeTag(type: 'allergens' | 'vitamins' | 'minerals', tag: string) {
@@ -817,7 +933,8 @@ async function saveRecipe() {
       allergens: recipeForm.value.allergens,
       vitamins: recipeForm.value.vitamins,
       minerals: recipeForm.value.minerals,
-      status: 'public'
+      status: 'public',
+      pictures_url: recipeForm.value.pictures_url
     }
 
     const token = authStore.token
@@ -847,7 +964,8 @@ async function saveRecipe() {
       is_halal: false,
       allergens: [],
       vitamins: [],
-      minerals: []
+      minerals: [],
+      pictures_url: []
     }
     localStorage.removeItem('recipe_draft')
 
@@ -937,6 +1055,29 @@ function getRecipeEmoji(name: string): string {
     if (name.includes(key)) return emojiMap[key]
   }
   return emojiMap['默认']
+}
+
+function getRecipeFirstImage(recipe: any): string | null {
+  if (recipe.pictures_url && Array.isArray(recipe.pictures_url) && recipe.pictures_url.length > 0) {
+    return recipe.pictures_url[0]
+  }
+  return null
+}
+
+function getIngredientImage(ing: any): string | null {
+  if (ing.picture_url) {
+    return ing.picture_url
+  }
+  return null
+}
+
+function getIngredientEmoji(category: string): string {
+  const emojiMap: Record<string, string> = {
+    '蔬菜': '🥬', '水果': '🍎', '肉类': '🥩', '蛋类': '🥚',
+    '奶制品': '🥛', '谷物': '🌾', '豆类': '🫘', '坚果': '🥜',
+    '海鲜': '🦐', '其他': '🍽️'
+  }
+  return emojiMap[category] || emojiMap['其他']
 }
 
 function openRecipeDetail(id: number) {
@@ -1058,7 +1199,8 @@ async function getalladmins() {
       <div v-else class="recipe-grid">
         <div v-for="recipe in pendingRecipes" :key="recipe.id" class="recipe-card">
           <div class="recipe-image" @click="openRecipeDetail(recipe.id)">
-            <span class="recipe-emoji">{{ getRecipeEmoji(recipe.name) }}</span>
+            <img v-if="getRecipeFirstImage(recipe)" :src="getRecipeFirstImage(recipe)" :alt="recipe.name" class="cover-img" />
+            <span v-else class="recipe-emoji">{{ getRecipeEmoji(recipe.name) }}</span>
           </div>
           <div class="recipe-info">
             <h3>{{ recipe.name }}</h3>
@@ -1166,18 +1308,19 @@ async function getalladmins() {
       <div v-else class="recipe-grid">
         <div v-for="recipe in filteredRecipes" :key="recipe.id" class="recipe-card">
           <div class="recipe-image" @click="openRecipeDetail(recipe.id)">
-            <span class="recipe-emoji">{{ getRecipeEmoji(recipe.name) }}</span>
+            <img v-if="getRecipeFirstImage(recipe)" :src="getRecipeFirstImage(recipe)" :alt="recipe.name" class="cover-img" />
+            <span v-else class="recipe-emoji">{{ getRecipeEmoji(recipe.name) }}</span>
           </div>
           <div class="recipe-info">
             <h3>{{ recipe.name }}</h3>
             <p class="meta">菜系: {{ recipe.cuisine }}</p>
-            <span class="status" :class="{ public: recipe.is_public }">
-              {{ recipe.is_public ? '已公开' : '私密' }}
+            <span class="status" :class="{ public: recipe.status === 'public' }">
+              {{ recipe.status === 'public' ? '已公开' : (recipe.status === 'private' ? '私密' : '待审核') }}
             </span>
             <div class="actions">
               <button class="btn-edit" @click="openRecipeCreate(recipe)">编辑</button>
-              <button class="btn-toggle" @click="toggleRecipeVisibility(recipe.id, recipe.is_public)">
-                {{ recipe.is_public ? '设为私密' : '设为公开' }}
+              <button class="btn-toggle" @click="toggleRecipeVisibility(recipe.id, recipe.status)">
+                {{ recipe.status === 'public' ? '设为私密' : '设为公开' }}
               </button>
               <button class="btn-delete-small" @click="deleteRecipe(recipe.id)">删除</button>
             </div>
@@ -1199,6 +1342,10 @@ async function getalladmins() {
       </div>
       <div v-else class="ingredient-list">
         <div v-for="ing in ingredients" :key="ing.id" class="ingredient-item">
+          <div class="ingredient-image">
+            <img v-if="getIngredientImage(ing)" :src="getIngredientImage(ing)" :alt="Array.isArray(ing.name) ? ing.name[0] : ing.name" class="cover-img" />
+            <span v-else class="ingredient-emoji">{{ getIngredientEmoji(ing.category) }}</span>
+          </div>
           <div class="ingredient-info" @click="openIngredientDetail(ing.id)">
             <span class="ingredient-name">{{ Array.isArray(ing.name) ? ing.name.join(', ') : ing.name }}</span>
             <span class="ingredient-category">{{ ing.category }}</span>
@@ -1263,6 +1410,22 @@ async function getalladmins() {
             <input v-model="ingredientForm.vitamins" type="text" placeholder="如: 维生素C, 维生素A" />
           </div>
           <div class="form-group">
+            <label>封面图片</label>
+            <div class="cover-upload-area">
+              <div v-if="ingredientForm.picture_url" class="cover-preview-item">
+                <img :src="ingredientForm.picture_url" alt="封面" />
+                <button class="btn-remove-cover" @click="removeIngredientCover">×</button>
+              </div>
+              <div v-else class="cover-input-wrapper">
+                <input type="file" accept="image/*" @change="onIngredientCoverSelect" id="ingredient-cover-input" style="display: none;" />
+                <label for="ingredient-cover-input" class="cover-input-label">
+                  <span v-if="uploadingIngredientCover">上传中...</span>
+                  <span v-else>+ 添加封面</span>
+                </label>
+              </div>
+            </div>
+          </div>
+          <div class="form-group">
             <label>矿物质（逗号分隔）</label>
             <input v-model="ingredientForm.minerals" type="text" placeholder="如: 钙, 铁" />
           </div>
@@ -1288,6 +1451,27 @@ async function getalladmins() {
           <label>食谱名称 *</label>
           <input v-model="recipeForm.name" type="text" placeholder="如: 红烧肉" />
         </div>
+
+        <div class="form-group">
+          <label>封面图片</label>
+          <div class="cover-upload-area">
+            <div v-if="recipeForm.pictures_url && recipeForm.pictures_url.length > 0" class="cover-list">
+              <div v-for="(url, idx) in recipeForm.pictures_url" :key="idx" class="cover-item">
+                <img :src="url" alt="封面" />
+                <button class="btn-remove-cover" @click="removeRecipeCover(idx)">×</button>
+              </div>
+            </div>
+            <div v-if="!recipeForm.pictures_url || recipeForm.pictures_url.length < 3" class="cover-input-wrapper">
+              <input type="file" accept="image/*" @change="onRecipeCoverSelect" id="recipe-cover-input-admin" style="display: none;" />
+              <label for="recipe-cover-input-admin" class="cover-input-label">
+                <span v-if="uploadingRecipeCover">上传中...</span>
+                <span v-else>+ 添加封面</span>
+              </label>
+            </div>
+          </div>
+          <p class="form-hint">最多3张封面图片</p>
+        </div>
+
         <div class="form-row">
           <div class="form-group">
             <label>菜系</label>
@@ -1447,6 +1631,72 @@ async function getalladmins() {
 </template>
 
 <style scoped>
+/* 封面上传样式 */
+.cover-upload-area {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.cover-preview-item {
+  position: relative;
+  width: 80px;
+  height: 80px;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.cover-preview-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.cover-input-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cover-input-label {
+  width: 80px;
+  height: 80px;
+  border: 2px dashed #ccc;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #999;
+  font-size: 0.8rem;
+  overflow: hidden;
+}
+
+.cover-input-label:hover {
+  border-color: #4caf50;
+  color: #4caf50;
+}
+
+.cover-preview-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.btn-confirm-cover {
+  padding: 6px 12px;
+  background: #4caf50;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.btn-confirm-cover:disabled {
+  background: #ccc;
+}
+
 /* 剪贴板提示 */
 .clipboard-toast {
   position: fixed;
@@ -1773,6 +2023,7 @@ async function getalladmins() {
   display: flex;
   align-items: center;
   justify-content: center;
+  overflow: hidden; 
   cursor: pointer;
 }
 
@@ -1960,11 +2211,33 @@ async function getalladmins() {
 
 .ingredient-item {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  gap: 1rem;
   padding: 1rem;
   background: #f9f9f9;
   border-radius: 8px;
+}
+
+.ingredient-image {
+  width: 60px;
+  height: 60px;
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #e8f5e9, #c8e6c9);
+  flex-shrink: 0;
+}
+
+.ingredient-image .cover-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.ingredient-image .ingredient-emoji {
+  font-size: 1.8rem;
 }
 
 .ingredient-info {

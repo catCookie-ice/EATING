@@ -66,14 +66,14 @@ def filter_recipe_fields(recipe_data: dict) -> dict:
 
 
 def enrich_recipe_with_source_avatar(recipe: Recipe, db: Session) -> dict:
-    """为食谱 enriched 返回数据，包含来源头像
+    """为食谱 enriched 返回数据，包含来源头像和封面图
 
     Args:
         recipe: 食谱模型实例
         db: 数据库会话
 
     Returns:
-        包含来源头像的食谱字典
+        包含来源头像和封面图的食谱字典
     """
     from app.utils.storage import get_storage
 
@@ -99,6 +99,19 @@ def enrich_recipe_with_source_avatar(recipe: Recipe, db: Session) -> dict:
         "status": recipe.status,
         "creator_account": recipe.creator_account,
     }
+
+    # 解析封面图URL（混合存储模式下尝试找到真实存在的URL）
+    if recipe.pictures_url and isinstance(recipe.pictures_url, list) and len(recipe.pictures_url) > 0:
+        storage = get_storage()
+        resolved_pictures = []
+        for url in recipe.pictures_url:
+            resolved_url = storage.find_file(url) or url
+            resolved_pictures.append(resolved_url)
+        recipe_dict["pictures_url"] = resolved_pictures
+    elif recipe.pictures_url:
+        recipe_dict["pictures_url"] = recipe.pictures_url
+    else:
+        recipe_dict["pictures_url"] = []
 
     # 获取来源头像
     source_avatar_url = None

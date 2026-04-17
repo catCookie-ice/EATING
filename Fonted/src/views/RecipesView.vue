@@ -50,6 +50,13 @@ function getRecipeEmoji(name: string): string {
   }
   return emojiMap['默认']
 }
+
+function getFirstImage(recipe: any): string | null {
+  if (recipe.pictures_url && Array.isArray(recipe.pictures_url) && recipe.pictures_url.length > 0) {
+    return recipe.pictures_url[0]
+  }
+  return null
+}
 </script>
 
 <template>
@@ -88,7 +95,8 @@ function getRecipeEmoji(name: string): string {
         @click="goToDetail(recipe.id)"
       >
         <div class="recipe-image">
-          <span class="recipe-emoji">{{ getRecipeEmoji(recipe.name) }}</span>
+          <img v-if="getFirstImage(recipe)" :src="getFirstImage(recipe)" :alt="recipe.name" class="cover-img" />
+          <span v-else class="recipe-emoji">{{ getRecipeEmoji(recipe.name) }}</span>
         </div>
         <div class="recipe-info">
           <h3>{{ recipe.name }}</h3>
@@ -100,6 +108,10 @@ function getRecipeEmoji(name: string): string {
             <span v-if="recipe.is_halal" class="tag halal">清真</span>
             <span class="tag method">{{ recipe.method || '家常' }}</span>
             <span v-if="recipe.source === '系统'" class="tag official">官方</span>
+            <span v-else-if="recipe.source" class="tag user-source">
+              <img v-if="recipe.source_avatar_url" :src="recipe.source_avatar_url" class="source-avatar" />
+              {{ recipe.source }}
+            </span>
           </div>
         </div>
       </div>
@@ -199,7 +211,14 @@ function getRecipeEmoji(name: string): string {
   background: linear-gradient(135deg, #e8f5e9, #c8e6c9);
   display: flex;
   align-items: center;
+  overflow: hidden; 
   justify-content: center;
+}
+
+.recipe-image .cover-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .recipe-emoji {
@@ -252,6 +271,21 @@ function getRecipeEmoji(name: string): string {
 .tag.official {
   background: #e8f5e9;
   color: #388e3c;
+}
+
+.tag.user-source {
+  background: #fce4ec;
+  color: #c2185b;
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.tag .source-avatar {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  object-fit: cover;
 }
 
 .empty-state {

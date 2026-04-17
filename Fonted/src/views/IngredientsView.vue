@@ -43,6 +43,13 @@ function getIngredientEmoji(category: string): string {
 function goToIngredient(id: number) {
   window.open(`/ingredients/${id}`, '_blank')
 }
+
+function getFirstImage(item: any): string | null {
+  if (item.picture_url) {
+    return item.picture_url
+  }
+  return null
+}
 </script>
 
 <template>
@@ -75,8 +82,9 @@ function goToIngredient(id: number) {
         class="ingredient-card"
         @click="goToIngredient(item.id)"
       >
-        <div class="ingredient-emoji">
-          {{ getIngredientEmoji(item.category) }}
+        <div class="ingredient-image">
+          <img v-if="getFirstImage(item)" :src="getFirstImage(item)" :alt="Array.isArray(item.name) ? item.name[0] : item.name" class="cover-img" />
+          <span v-else class="ingredient-emoji">{{ getIngredientEmoji(item.category) }}</span>
         </div>
         <div class="ingredient-info">
           <h3>{{ Array.isArray(item.name) ? item.name.join(', ') : item.name }}</h3>
@@ -171,10 +179,25 @@ function goToIngredient(id: number) {
   box-shadow: 0 8px 30px rgba(76, 175, 80, 0.2);
 }
 
+.ingredient-image {
+  height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 1rem;
+  overflow: hidden;
+  background: linear-gradient(135deg, #e8f5e9, #c8e6c9);
+  border-radius: 12px;
+}
+
+.ingredient-image .cover-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 .ingredient-emoji {
   font-size: 3rem;
-  text-align: center;
-  margin-bottom: 1rem;
 }
 
 .ingredient-info h3 {

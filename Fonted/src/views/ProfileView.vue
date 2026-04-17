@@ -36,7 +36,8 @@ const recipeForm = ref({
   is_halal: false,
   allergens: [] as string[],
   vitamins: [] as string[],
-  minerals: [] as string[]
+  minerals: [] as string[],
+  pictures_url: [] as string[]
 })
 let savedRecipeForm = JSON.parse(JSON.stringify(recipeForm.value))
 
@@ -56,6 +57,11 @@ const tagType = ref<'allergens' | 'vitamins' | 'minerals'>('allergens')
 const newAllergen = ref('')
 const newVitamin = ref('')
 const newMineral = ref('')
+
+// 封面上传相关
+const recipeCoverPreview = ref('')
+const recipeCoverFile = ref<File | null>(null)
+const uploadingCover = ref(false)
 
 onMounted(async () => {
   await authStore.init()
@@ -119,6 +125,13 @@ function getRecipeEmoji(name: string): string {
     if (name.includes(key)) return emojiMap[key]
   }
   return emojiMap['默认']
+}
+
+function getRecipeFirstImage(recipe: any): string | null {
+  if (recipe.pictures_url && Array.isArray(recipe.pictures_url) && recipe.pictures_url.length > 0) {
+    return recipe.pictures_url[0]
+  }
+  return null
 }
 
 function goToAdmin() {
@@ -204,7 +217,8 @@ async function applyClipboardData() {
       is_halal: d.is_halal || false,
       allergens: d.allergens || [],
       vitamins: d.vitamins || [],
-      minerals: d.minerals || []
+      minerals: d.minerals || [],
+      pictures_url: []
     }
     showRecipeForm.value = true
   }
@@ -316,7 +330,8 @@ function openMyRecipeCreate(recipe?: any, restoreDraft: boolean = true) {
       is_halal: recipe.is_halal || false,
       allergens: recipe.allergens || [],
       vitamins: recipe.vitamins || [],
-      minerals: recipe.minerals || []
+      minerals: recipe.minerals || [],
+      pictures_url: recipe.pictures_url || []
     }
   } else {
     // 新建模式：如果有保存的草稿且需要恢复
@@ -337,7 +352,8 @@ function openMyRecipeCreate(recipe?: any, restoreDraft: boolean = true) {
         is_halal: false,
         allergens: [],
         vitamins: [],
-        minerals: []
+        minerals: [],
+        pictures_url: []
       }
       localStorage.removeItem('recipe_draft')
     } else {
@@ -424,6 +440,54 @@ function addMineral() {
   newMineral.value = ''
 }
 
+// 上传封面图片
+async function uploadRecipeCover(file: File) {
+  if (!file) return
+  const formData = new FormData()
+  formData.append('file', file)
+  uploadingCover.value = true
+  try {
+    const res = await axios.post('/api/upload/cover', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+    recipeForm.value.pictures_url.push(res.data.url)
+    recipeCoverPreview.value = ''
+    recipeCoverFile.value = null
+  } catch (e: any) {
+    alert(e.response?.data?.detail || '封面上传失败')
+  } finally {
+    uploadingCover.value = false
+  }
+}
+
+// 选择封面图片并直接上传
+async function onRecipeCoverSelect(e: Event) {
+  const target = e.target as HTMLInputElement
+  const file = target.files?.[0]
+  if (file) {
+    const formData = new FormData()
+    formData.append('file', file)
+    uploadingCover.value = true
+    try {
+      const res = await axios.post('/api/upload/cover', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      })
+      recipeForm.value.pictures_url.push(res.data.url)
+    } catch (e: any) {
+      alert(e.response?.data?.detail || '封面上传失败')
+    } finally {
+      uploadingCover.value = false
+      // 清空input，以便再次选择同一文件
+      target.value = ''
+    }
+  }
+}
+
+// 删除封面
+function removeRecipeCover(index: number) {
+  recipeForm.value.pictures_url.splice(index, 1)
+}
+
 function removeTag(type: 'allergens' | 'vitamins' | 'minerals', tag: string) {
   if (type === 'allergens') {
     recipeForm.value.allergens = recipeForm.value.allergens.filter(t => t !== tag)
@@ -477,7 +541,8 @@ async function saveMyRecipe() {
       is_halal: recipeForm.value.is_halal,
       allergens: recipeForm.value.allergens,
       vitamins: recipeForm.value.vitamins,
-      minerals: recipeForm.value.minerals
+      minerals: recipeForm.value.minerals,
+      pictures_url: recipeForm.value.pictures_url
     }
 
     if (editingRecipeId.value) {
@@ -487,7 +552,7 @@ async function saveMyRecipe() {
     } else {
       // 新建模式
       await axios.post('/api/recipes/my', data)
-      alert('食谱已提交，等待审核')
+      alert('食谱创建成功')
     }
 
     // 成功后清除草稿
@@ -505,7 +570,8 @@ async function saveMyRecipe() {
       is_halal: false,
       allergens: [],
       vitamins: [],
-      minerals: []
+      minerals: [],
+      pictures_url: []
     }
     localStorage.removeItem('recipe_draft')
 
@@ -544,7 +610,8 @@ function clearRecipeDraft() {
     is_halal: false,
     allergens: [],
     vitamins: [],
-    minerals: []
+    minerals: [],
+    pictures_url: []
   }
   localStorage.removeItem('recipe_draft')
 }
@@ -672,7 +739,8 @@ async function deleteMyRecipe(recipeId: number) {
           class="recipe-card"
         >
           <div class="recipe-image" @click="goToRecipe(recipe.id)">
-            <span class="recipe-emoji">{{ getRecipeEmoji(recipe.name) }}</span>
+            <img v-if="getRecipeFirstImage(recipe)" :src="getRecipeFirstImage(recipe)" :alt="recipe.name" class="cover-img" />
+            <span v-else class="recipe-emoji">{{ getRecipeEmoji(recipe.name) }}</span>
           </div>
           <div class="recipe-info">
             <h4>{{ recipe.name }}</h4>
@@ -705,6 +773,27 @@ async function deleteMyRecipe(recipeId: number) {
           <label>食谱名称 *</label>
           <input v-model="recipeForm.name" type="text" placeholder="如: 红烧肉" />
         </div>
+
+        <div class="form-group">
+          <label>封面图片</label>
+          <div class="cover-upload-area">
+            <div v-if="recipeForm.pictures_url && recipeForm.pictures_url.length > 0" class="cover-list">
+              <div v-for="(url, idx) in recipeForm.pictures_url" :key="idx" class="cover-item">
+                <img :src="url" alt="封面" />
+                <button class="btn-remove-cover" @click="removeRecipeCover(idx)">×</button>
+              </div>
+            </div>
+            <div v-if="!recipeForm.pictures_url || recipeForm.pictures_url.length < 3" class="cover-input-wrapper">
+              <input type="file" accept="image/*" @change="onRecipeCoverSelect" id="recipe-cover-input" style="display: none;" />
+              <label for="recipe-cover-input" class="cover-input-label">
+                <span v-if="uploadingCover">上传中...</span>
+                <span v-else>+ 添加封面</span>
+              </label>
+            </div>
+          </div>
+          <p class="form-hint">最多3张封面图片</p>
+        </div>
+
         <div class="form-row">
           <div class="form-group">
             <label>菜系</label>
@@ -814,6 +903,98 @@ async function deleteMyRecipe(recipeId: number) {
 .profile-page {
   max-width: 800px;
   margin: 0 auto;
+}
+
+/* 封面上传样式 */
+.cover-upload-area {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.cover-list {
+  display: flex;
+  gap: 10px;
+}
+
+.cover-item {
+  position: relative;
+  width: 80px;
+  height: 80px;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.cover-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.btn-remove-cover {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  background: rgba(0, 0, 0, 0.6);
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.cover-input-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cover-input-label {
+  width: 80px;
+  height: 80px;
+  border: 2px dashed #ccc;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #999;
+  font-size: 0.8rem;
+  overflow: hidden;
+}
+
+.cover-input-label:hover {
+  border-color: #4caf50;
+  color: #4caf50;
+}
+
+.cover-preview-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.btn-confirm-cover {
+  padding: 6px 12px;
+  background: #4caf50;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.btn-confirm-cover:disabled {
+  background: #ccc;
+}
+
+.form-hint {
+  font-size: 0.8rem;
+  color: #999;
+  margin-top: 4px;
 }
 
 /* 剪贴板提示 */
@@ -1285,6 +1466,7 @@ async function deleteMyRecipe(recipeId: number) {
   background: linear-gradient(135deg, #e8f5e9, #c8e6c9);
   display: flex;
   align-items: center;
+  overflow: hidden; 
   justify-content: center;
 }
 

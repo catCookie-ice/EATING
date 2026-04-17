@@ -82,6 +82,13 @@ function getRecipeEmoji(name: string): string {
   return emojiMap['默认']
 }
 
+function getFirstImage(): string | null {
+  if (recipe.value?.pictures_url && Array.isArray(recipe.value.pictures_url) && recipe.value.pictures_url.length > 0) {
+    return recipe.value.pictures_url[0]
+  }
+  return null
+}
+
 // 转换材料格式：从 {key: value} 转为 {材料名: key, 重量: value}
 function parseMaterials(materials: any[]): { 材料名: string; 重量: string }[] {
   if (!materials) return []
@@ -114,7 +121,8 @@ function parseSteps(steps: any[]): { 步骤: number; 操作: string }[] {
 
     <div class="recipe-header">
       <div class="recipe-emoji-large">
-        {{ getRecipeEmoji(recipe.name) }}
+        <img v-if="getFirstImage()" :src="getFirstImage()" :alt="recipe.name" class="cover-img" />
+        <span v-else>{{ getRecipeEmoji(recipe.name) }}</span>
       </div>
       <div class="recipe-title">
         <h1>{{ recipe.name }}</h1>
@@ -123,7 +131,15 @@ function parseSteps(steps: any[]): { 步骤: number; 操作: string }[] {
           <span class="tag cuisine">{{ recipe.cuisine }}</span>
           <span class="tag method">{{ recipe.method }}</span>
         </div>
-        <p class="source">来源: {{ recipe.source }}</p>
+        <p class="source">
+          <template v-if="recipe.source === '系统'">来源: 系统</template>
+          <template v-else-if="recipe.source_avatar_url">
+            <img :src="recipe.source_avatar_url" class="source-avatar" />
+            来源: {{ recipe.source }}
+          </template>
+          <template v-else-if="recipe.source">来源: {{ recipe.source }}</template>
+          <template v-else>来源: 用户</template>
+        </p>
         <!-- 收藏按钮 -->
         <button class="btn-favorite" @click="toggleFavorite" :class="{ favorited: isFavorited }">
           {{ isFavorited ? '❤️ 已收藏' : '🤍 收藏' }}
@@ -220,6 +236,20 @@ function parseSteps(steps: any[]): { 步骤: number; 操作: string }[] {
 
 .recipe-emoji-large {
   font-size: 6rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 200px;
+  height: 200px;
+  border-radius: 16px;
+  overflow: hidden;
+  background: linear-gradient(135deg, #e8f5e9, #c8e6c9);
+}
+
+.recipe-emoji-large .cover-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .recipe-title h1 {
@@ -258,6 +288,16 @@ function parseSteps(steps: any[]): { 步骤: number; 操作: string }[] {
 .source {
   color: #78909c;
   font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.source .source-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  object-fit: cover;
 }
 
 .btn-favorite {

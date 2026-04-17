@@ -392,8 +392,11 @@ def get_user_favorites(
     if not user:
         return []
 
+    from app.utils.storage import get_storage
+
     favorites = user.favorite_records or []
     result = []
+    storage = get_storage()
 
     for fav in favorites:
         recipe_id = fav.get("recipe_id")
@@ -402,12 +405,30 @@ def get_user_favorites(
             Recipe.is_delete == False
         ).first()
         if recipe:
+            # 解析封面图URL
+            pictures_url = []
+            if recipe.pictures_url and isinstance(recipe.pictures_url, list) and len(recipe.pictures_url) > 0:
+                for url in recipe.pictures_url:
+                    resolved_url = storage.find_file(url) or url
+                    pictures_url.append(resolved_url)
+
+            # 获取来源头像
+            source_avatar_url = None
+            if recipe.source and recipe.source not in ["系统", "官方"]:
+                if recipe.creator_account:
+                    source_user = db.query(User).filter(User.account == recipe.creator_account).first()
+                    if source_user and source_user.avatar_url:
+                        source_avatar_url = storage.find_file(source_user.avatar_url) or source_user.avatar_url
+
             result.append({
                 "id": recipe.id,
                 "name": recipe.name,
                 "difficulty": recipe.difficulty,
                 "cuisine": recipe.cuisine,
                 "method": recipe.method,
+                "pictures_url": pictures_url,
+                "source": recipe.source,
+                "source_avatar_url": source_avatar_url,
                 "收藏时间": fav.get("收藏时间")
             })
 

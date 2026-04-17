@@ -37,6 +37,13 @@ function getIngredientEmoji(category: string): string {
   return emojiMap[category] || emojiMap['其他']
 }
 
+function getIngredientImage(): string | null {
+  if (ingredient.value?.picture_url) {
+    return ingredient.value.picture_url
+  }
+  return null
+}
+
 function goToRecipe(id: number) {
   window.open(`/recipes/${id}`, '_blank')
 }
@@ -57,7 +64,8 @@ function getRecipeEmoji(name: string): string {
   <div class="ingredient-detail" v-if="ingredient">
     <div class="ingredient-header">
       <div class="ingredient-emoji-large">
-        {{ getIngredientEmoji(ingredient.category) }}
+        <img v-if="getIngredientImage()" :src="getIngredientImage()" :alt="Array.isArray(ingredient.name) ? ingredient.name[0] : ingredient.name" class="cover-img" />
+        <span v-else>{{ getIngredientEmoji(ingredient.category) }}</span>
       </div>
       <div class="ingredient-title">
         <h1>{{ Array.isArray(ingredient.name) ? ingredient.name.join(', ') : ingredient.name }}</h1>
@@ -169,6 +177,20 @@ function getRecipeEmoji(name: string): string {
 
 .ingredient-emoji-large {
   font-size: 6rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 200px;
+  height: 200px;
+  border-radius: 16px;
+  overflow: hidden;
+  background: linear-gradient(135deg, #e8f5e9, #c8e6c9);
+}
+
+.ingredient-emoji-large .cover-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .ingredient-title h1 {
@@ -344,6 +366,7 @@ function getRecipeEmoji(name: string): string {
   background: linear-gradient(135deg, #e8f5e9, #c8e6c9);
   display: flex;
   align-items: center;
+  overflow: hidden;
   justify-content: center;
 }
 
