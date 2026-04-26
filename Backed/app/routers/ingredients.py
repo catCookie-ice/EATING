@@ -15,6 +15,18 @@ from app.utils.storage import get_storage
 router = APIRouter(prefix="/ingredients", tags=["食材"])
 
 
+def delete_old_file(old_url: str):
+    """删除旧文件"""
+    if not old_url:
+        return
+    try:
+        storage = get_storage()
+        storage.delete(old_url)
+    except Exception:
+        # 删除失败静默处理，不影响主流程
+        pass
+
+
 def enrich_ingredient_with_picture_url(ingredient: Ingredient, db: Session) -> dict:
     """为食材 enriched 返回数据，包含解析后的封面图片URL
 
@@ -205,6 +217,11 @@ def update_ingredient(
         )
 
     update_data = ingredient_update.model_dump(exclude_unset=True)
+
+    # 删除旧的封面图片
+    if "picture_url" in update_data and update_data["picture_url"]:
+        if db_ingredient.picture_url and update_data["picture_url"] != db_ingredient.picture_url:
+            delete_old_file(db_ingredient.picture_url)
 
     # 过滤违禁词
     if update_data.get("name"):

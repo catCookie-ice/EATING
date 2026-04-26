@@ -19,11 +19,14 @@ MAX_FILE_SIZE = 5 * 1024 * 1024
 @router.post("/image")
 async def upload_image(
     file: UploadFile = File(..., description="图片文件"),
-    person: Person = Depends(get_current_user)
+    person: Person = Depends(get_current_user),
+    file_type: str = "other"
 ):
     """上传图片文件
 
-    返回图片的URL地址，支持头像、封面等场景
+    Args:
+        file_type: 文件类型，可选 avatar/cover/other
+    返回图片URL地址，支持头像、封面等场景
     """
     # 验证文件类型
     if file.content_type not in ALLOWED_IMAGE_TYPES:
@@ -44,7 +47,7 @@ async def upload_image(
 
     # 获取存储服务并上传
     storage = get_storage()
-    file_url = storage.upload(file_content, file.filename or "image.jpg")
+    file_url = storage.upload(file_content, filename=file.filename or "image.jpg", file_type=file_type)
 
     return {
         "url": file_url,
@@ -63,7 +66,7 @@ async def upload_avatar(
 
     返回头像的URL地址
     """
-    return await upload_image(file, person)
+    return await upload_image(file, person, "avatar")
 
 
 @router.post("/cover")
@@ -75,7 +78,7 @@ async def upload_cover(
 
     返回封面的URL地址，可用于食材或食谱封面
     """
-    return await upload_image(file, person)
+    return await upload_image(file, person, "cover")
 
 
 @router.get("/test")

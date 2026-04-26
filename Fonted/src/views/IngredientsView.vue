@@ -83,7 +83,7 @@ function getFirstImage(item: any): string | null {
         @click="goToIngredient(item.id)"
       >
         <div class="ingredient-image">
-          <img v-if="getFirstImage(item)" :src="getFirstImage(item)" :alt="Array.isArray(item.name) ? item.name[0] : item.name" class="cover-img" />
+          <img v-if="getFirstImage(item)" :src="getFirstImage(item)" :alt="Array.isArray(item.name) ? item.name[0] : item.name" class="cover-img" loading="lazy" />
           <span v-else class="ingredient-emoji">{{ getIngredientEmoji(item.category) }}</span>
         </div>
         <div class="ingredient-info">

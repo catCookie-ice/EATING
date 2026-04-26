@@ -628,7 +628,7 @@ async function shareRecipe(recipeId: number) {
   const recipe = myRecipes.value.find(r => r.id === recipeId)
   if (!recipe) return
 
-  if (recipe.status === 'pending') {
+  if (recipe.status === 'pending' || recipe.status === 'appealing') {
     alert('食谱已在审核中，请等待管理员审核')
     return
   }
@@ -640,6 +640,17 @@ async function shareRecipe(recipeId: number) {
     alert('食谱已提交审核，请等待管理员通过')
   } catch (e: any) {
     alert(e.response?.data?.detail || '分享失败')
+  }
+}
+
+async function applyUnban(recipeId: number) {
+  try {
+    await axios.put(`/api/recipes/${recipeId}/unban`)
+    const res = await axios.get('/api/recipes/my')
+    myRecipes.value = res.data
+    alert('已申请解封，请等待管理员审核')
+  } catch (e: any) {
+    alert(e.response?.data?.detail || '申请解封失败')
   }
 }
 
@@ -739,17 +750,18 @@ async function deleteMyRecipe(recipeId: number) {
           class="recipe-card"
         >
           <div class="recipe-image" @click="goToRecipe(recipe.id)">
-            <img v-if="getRecipeFirstImage(recipe)" :src="getRecipeFirstImage(recipe)" :alt="recipe.name" class="cover-img" />
+            <img v-if="getRecipeFirstImage(recipe)" :src="getRecipeFirstImage(recipe)" :alt="recipe.name" class="cover-img" loading="lazy" />
             <span v-else class="recipe-emoji">{{ getRecipeEmoji(recipe.name) }}</span>
           </div>
           <div class="recipe-info">
             <h4>{{ recipe.name }}</h4>
-            <span class="status" :class="{ public: recipe.status === 'public' }">
-              {{ recipe.status === 'public' ? '已公开' : (recipe.status === 'private' ? '私密' : '待审核') }}
+            <span class="status" :class="{ public: recipe.status === 'public', banned: recipe.status === 'banned', pending: recipe.status === 'pending', appealing: recipe.status === 'appealing' }">
+              {{ recipe.status === 'banned' ? '已封禁' : (recipe.status === 'public' ? '已公开' : (recipe.status === 'private' ? '私密' : (recipe.status === 'appealing' ? '申请解封' : '申请公开'))) }}
             </span>
           </div>
           <div class="recipe-actions">
             <button class="btn-share" v-if="recipe.status === 'private'" @click.stop="shareRecipe(recipe.id)">分享</button>
+            <button class="btn-share" v-if="recipe.status === 'banned'" @click.stop="applyUnban(recipe.id)">申请解封</button>
             <button class="btn-edit" @click.stop="openMyRecipeCreate(recipe)">编辑</button>
             <button class="btn-delete" @click.stop="deleteMyRecipe(recipe.id)">删除</button>
           </div>
@@ -779,7 +791,7 @@ async function deleteMyRecipe(recipeId: number) {
           <div class="cover-upload-area">
             <div v-if="recipeForm.pictures_url && recipeForm.pictures_url.length > 0" class="cover-list">
               <div v-for="(url, idx) in recipeForm.pictures_url" :key="idx" class="cover-item">
-                <img :src="url" alt="封面" />
+                <img :src="url" alt="封面" loading="lazy" />
                 <button class="btn-remove-cover" @click="removeRecipeCover(idx)">×</button>
               </div>
             </div>
@@ -1535,6 +1547,18 @@ async function deleteMyRecipe(recipeId: number) {
 
 .status.public {
   color: #4caf50;
+}
+
+.status.banned {
+  color: #f44336;
+}
+
+.status.pending {
+  color: #ff9800;
+}
+
+.status.appealing {
+  color: #9c27b0;
 }
 
 .empty {

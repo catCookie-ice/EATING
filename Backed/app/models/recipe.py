@@ -23,7 +23,7 @@ class Recipe(Base):
 
     # 新增字段
     source = Column(String(50), default="系统", comment="来源: 系统/用户昵称")
-    status = Column(String(20), default="private", comment="状态: private(私密)/public(公开)/pending(待审核)")
+    status = Column(String(20), default="private", comment="状态: private(私密)/public(公开)/pending(申请公开)/appealing(申请解封)/banned(封禁)")
     creator_account = Column(String(20), nullable=True, comment="创建者账户(用户分享时记录)")
     method = Column(String(20), comment="烹饪方式: 蒸/煮/炸/炒/焖/拌/卤/烤/煎/腌/其他")
     pictures_url = Column(JSON, nullable=True, comment="展示图片地址列表")

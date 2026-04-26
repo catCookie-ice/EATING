@@ -20,8 +20,14 @@ from app.config import settings, StorageType
 class StorageService:
     """存储服务基类"""
 
-    def upload(self, file_data: bytes, filename: str) -> str:
-        """上传文件，返回URL"""
+    def upload(self, file_data: bytes, filename: str, file_type: str = "other") -> str:
+        """上传文件，返回URL
+
+        Args:
+            file_data: 文件内容
+            filename: 原始文件名
+            file_type: 文件类型，可选 avatar/cover/other
+        """
         raise NotImplementedError
 
     def get_url(self, file_path: str) -> str:
@@ -46,11 +52,15 @@ class LocalStorage(StorageService):
         # 确保上传目录存在
         self.base_dir.mkdir(parents=True, exist_ok=True)
 
-    def _get_file_path(self, filename: str) -> Path:
-        """生成唯一文件路径"""
-        # 按日期组织文件
-        date_str = datetime.now().strftime("%Y%m%d")
-        file_dir = self.base_dir / date_str
+    def _get_file_path(self, filename: str, file_type: str = "other") -> Path:
+        """生成唯一文件路径
+
+        Args:
+            filename: 原始文件名
+            file_type: 文件类型，可选 avatar/cover/other
+        """
+        # 按文件类型存储，不按日期区分
+        file_dir = self.base_dir / file_type
         file_dir.mkdir(parents=True, exist_ok=True)
 
         # 生成唯一文件名
@@ -58,9 +68,9 @@ class LocalStorage(StorageService):
         unique_name = f"{uuid.uuid4().hex}{ext}"
         return file_dir / unique_name
 
-    def upload(self, file_data: bytes, filename: str) -> str:
+    def upload(self, file_data: bytes, filename: str, file_type: str = "other") -> str:
         """上传文件到本地存储"""
-        file_path = self._get_file_path(filename)
+        file_path = self._get_file_path(filename, file_type)
 
         with open(file_path, "wb") as f:
             f.write(file_data)
@@ -128,16 +138,20 @@ class CloudStorage(StorageService):
         self.client = CosS3Client(config)
         self.bucket = settings.COS_BUCKET
 
-    def _get_key(self, filename: str) -> str:
-        """生成COS对象键"""
-        date_str = datetime.now().strftime("%Y%m%d")
+    def _get_key(self, filename: str, file_type: str = "other") -> str:
+        """生成COS对象键
+
+        Args:
+            filename: 原始文件名
+            file_type: 文件类型，可选 avatar/cover/other
+        """
         ext = Path(filename).suffix
         unique_name = f"{uuid.uuid4().hex}{ext}"
-        return f"{date_str}/{unique_name}"
+        return f"{file_type}/{unique_name}"
 
-    def upload(self, file_data: bytes, filename: str) -> str:
+    def upload(self, file_data: bytes, filename: str, file_type: str = "other") -> str:
         """上传文件到云存储"""
-        key = self._get_key(filename)
+        key = self._get_key(filename, file_type)
 
         from io import BytesIO
         file_stream = BytesIO(file_data)
@@ -225,17 +239,17 @@ class MixedStorage(StorageService):
             self._local = LocalStorage()
         return self._local
 
-    def upload(self, file_data: bytes, filename: str) -> str:
+    def upload(self, file_data: bytes, filename: str, file_type: str = "other") -> str:
         """混合存储上传 - 优先云存储"""
         try:
             # 尝试云存储
-            url = self.cloud.upload(file_data, filename)
+            url = self.cloud.upload(file_data, filename, file_type)
             return url
         except Exception as e:
             # 云存储失败，使用本地存储
             import logging
             logging.warning(f"云存储上传失败，切换到本地存储: {e}")
-            return self.local.upload(file_data, filename)
+            return self.local.upload(file_data, filename, file_type)
 
     def get_url(self, file_path: str) -> str:
         """获取文件访问URL"""

@@ -95,7 +95,7 @@ function getFirstImage(recipe: any): string | null {
         @click="goToDetail(recipe.id)"
       >
         <div class="recipe-image">
-          <img v-if="getFirstImage(recipe)" :src="getFirstImage(recipe)" :alt="recipe.name" class="cover-img" />
+          <img v-if="getFirstImage(recipe)" :src="getFirstImage(recipe)" :alt="recipe.name" class="cover-img" loading="lazy" />
           <span v-else class="recipe-emoji">{{ getRecipeEmoji(recipe.name) }}</span>
         </div>
         <div class="recipe-info">
@@ -109,7 +109,7 @@ function getFirstImage(recipe: any): string | null {
             <span class="tag method">{{ recipe.method || '家常' }}</span>
             <span v-if="recipe.source === '系统'" class="tag official">官方</span>
             <span v-else-if="recipe.source" class="tag user-source">
-              <img v-if="recipe.source_avatar_url" :src="recipe.source_avatar_url" class="source-avatar" />
+              <img v-if="recipe.source_avatar_url" :src="recipe.source_avatar_url" class="source-avatar" loading="lazy" />
               {{ recipe.source }}
             </span>
           </div>

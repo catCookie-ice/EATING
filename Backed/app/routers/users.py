@@ -19,6 +19,18 @@ from app.routers.auth import validate_taste, validate_optional_field, validate_g
 router = APIRouter(prefix="/users", tags=["用户"])
 
 
+def delete_old_file(old_url: Optional[str]):
+    """删除旧文件"""
+    if not old_url:
+        return
+    try:
+        storage = get_storage()
+        storage.delete(old_url)
+    except Exception:
+        # 删除失败静默处理，不影响主流程
+        pass
+
+
 def enrich_user_with_avatar_url(user: User, db: Session) -> dict:
     """为用户 enriched 返回数据，包含解析后的头像URL
 
@@ -133,6 +145,11 @@ def update_current_user(
         processed_value, warning = validate_optional_field(update_data["avatar_url"], "头像URL")
         if warning:
             warnings.append(warning)
+
+        # 删除旧头像
+        if processed_value and processed_value != user.avatar_url:
+            delete_old_file(user.avatar_url)
+
         update_data["avatar_url"] = processed_value
 
     # 处理联系方式加密
@@ -212,6 +229,11 @@ def update_user(
         processed_value, warning = validate_optional_field(update_data["avatar_url"], "头像URL")
         if warning:
             warnings.append(warning)
+
+        # 删除旧头像
+        if processed_value and processed_value != user.avatar_url:
+            delete_old_file(user.avatar_url)
+
         update_data["avatar_url"] = processed_value
 
     if user_update.contact:

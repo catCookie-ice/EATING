@@ -13,10 +13,17 @@ const isSuperAdmin = computed(() => authStore.adminLevel === 0)
 const isNormalAdmin = computed(() => authStore.adminLevel === 1)
 
 const activeTab = ref('pending')
+const pendingTab = ref('pending') // pending(申请公开) / appealing(申请解封)
 
 // 待审核数据
 const pendingRecipes = ref<any[]>([])
+const appealingRecipes = ref<any[]>([])
 const loading = ref(false)
+const pendingLoaded = ref(false)
+const appealingLoaded = ref(false)
+const usersLoaded = ref(false)
+const recipesLoaded = ref(false)
+const ingredientsLoaded = ref(false)
 
 // 管理员列表（仅0级可见）
 const admins = ref<any[]>([])
@@ -46,6 +53,13 @@ const methodOptions = ["蒸", "煮", "炸", "炒", "焖", "拌", "卤", "烤", "
 const showRecipeForm = ref(false)
 const editingRecipeId = ref<number | null>(null)
 const autoCalculateNutrition = ref(false)
+const editingRecipeData = ref<any>(null)  // 保存正在编辑的食谱数据
+
+// 判断是否在编辑系统食谱
+const isEditingSystemRecipe = computed(() => {
+  return editingRecipeData.value && !editingRecipeData.value.creator_account
+})
+
 const recipeForm = ref({
   name: '',
   cuisine: '川菜',
@@ -269,6 +283,81 @@ watch(showIngredientForm, (newVal) => {
   isAccidentalClose = false
 })
 
+async function loadPendingRecipes() {
+  if (pendingLoaded.value) return
+  const token = authStore.token
+  if (!token) return
+  try {
+    const res = await axios.get('/api/recipes/pending', {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    pendingRecipes.value = res.data
+    pendingLoaded.value = true
+  } catch (e: any) {
+    console.error('加载申请公开失败', e)
+  }
+}
+
+async function loadAppealingRecipes() {
+  if (appealingLoaded.value) return
+  const token = authStore.token
+  if (!token) return
+  try {
+    const res = await axios.get('/api/recipes/appealing', {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    appealingRecipes.value = res.data
+    appealingLoaded.value = true
+  } catch (e: any) {
+    console.error('加载申请解封失败', e)
+  }
+}
+
+async function loadUsers() {
+  if (usersLoaded.value) return
+  const token = authStore.token
+  if (!token) return
+  try {
+    const res = await axios.get('/api/admins/users', {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    users.value = res.data
+    usersLoaded.value = true
+  } catch (e: any) {
+    console.error('加载用户失败', e)
+  }
+}
+
+async function loadAllRecipes() {
+  if (recipesLoaded.value) return
+  const token = authStore.token
+  if (!token) return
+  try {
+    const res = await axios.get('/api/recipes/all', {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    allRecipes.value = res.data
+    recipesLoaded.value = true
+  } catch (e: any) {
+    console.error('加载食谱失败', e)
+  }
+}
+
+async function loadIngredients() {
+  if (ingredientsLoaded.value) return
+  const token = authStore.token
+  if (!token) return
+  try {
+    const res = await axios.get('/api/ingredients/', {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    ingredients.value = res.data
+    ingredientsLoaded.value = true
+  } catch (e: any) {
+    console.error('加载食材失败', e)
+  }
+}
+
 async function fetchData() {
   loading.value = true
   console.log('fetchData开始')
@@ -290,45 +379,6 @@ async function fetchData() {
     return
   }
 
-  // 1级管理员获取所有数据
-  if (isNormalAdmin.value) {
-    try {
-      // 待审核食谱
-      const res = await axios.get('/api/recipes/pending', {
-        headers: { Authorization: `Bearer ${token}` }
-      })
-      pendingRecipes.value = res.data
-      console.log('待审核食谱:', pendingRecipes.value.length)
-
-      // 用户列表
-      console.log('获取用户列表...')
-      const userRes = await axios.get('/api/admins/users', {
-        headers: { Authorization: `Bearer ${token}` }
-      })
-      users.value = userRes.data
-      console.log('用户列表:', users.value.length)
-
-      // 食谱列表
-      console.log('获取食谱列表...')
-      const recipeRes = await axios.get('/api/recipes/all', {
-        headers: { Authorization: `Bearer ${token}` }
-      })
-      allRecipes.value = recipeRes.data
-      console.log('食谱列表:', allRecipes.value.length)
-
-      // 食材列表
-      console.log('获取食材列表...')
-      const ingRes = await axios.get('/api/ingredients/', {
-        headers: { Authorization: `Bearer ${token}` }
-      })
-      ingredients.value = ingRes.data
-      console.log('食材列表:', ingredients.value.length)
-    } catch (e: any) {
-      console.error('fetchData错误:', e.response?.status, e.response?.data)
-    }
-  }
-
-  loading.value = false
 }
 
 // ========== 用户管理 ==========
@@ -402,13 +452,20 @@ async function unfreezeUser(account: string) {
 
 // ========== 食谱管理 ==========
 const filteredRecipes = computed(() => {
-  if (!recipeSearchQuery.value) return allRecipes.value
+  // 管理员可见：系统食谱（可编辑）+ 用户公开的食谱（只能设私密）
+  const recipes = allRecipes.value.filter(r => !r.creator_account || r.status === 'public')
+  if (!recipeSearchQuery.value) return recipes
   const query = recipeSearchQuery.value.toLowerCase()
-  return allRecipes.value.filter(r =>
+  return recipes.filter(r =>
     r.name?.toLowerCase().includes(query) ||
     r.cuisine?.toLowerCase().includes(query)
   )
 })
+
+// 判断食谱是否可编辑（系统食谱）
+const isEditable = (recipe: any) => {
+  return !recipe.creator_account
+}
 
 async function deleteRecipe(id: number) {
   if (!confirm('确定要删除这个食谱吗？')) return
@@ -423,7 +480,8 @@ async function deleteRecipe(id: number) {
 
 async function toggleRecipeVisibility(id: number, currentStatus: string) {
   try {
-    const newStatus = currentStatus === 'public' ? 'private' : 'public'
+    // 管理员封禁用户食谱
+    const newStatus = currentStatus === 'public' ? 'banned' : 'public'
     await axios.put(`/api/recipes/${id}/visibility`, { status: newStatus }, { headers: { Authorization: `Bearer ${authStore.token}` } })
     // 刷新列表
     const res = await axios.get('/api/recipes/all', { headers: { Authorization: `Bearer ${authStore.token}` } })
@@ -608,6 +666,8 @@ function saveIngredientDraft() {
 function openRecipeCreate(recipe?: any, restoreDraft: boolean = true) {
   console.log('openRecipeCreate called, recipe:', recipe, 'restoreDraft:', restoreDraft)
   editingRecipeId.value = recipe?.id || null
+  editingRecipeData.value = recipe || null  // 保存完整的食谱数据
+
   // 尝试解析剪贴板（异步但不阻塞）
   parseClipboard()
 
@@ -1003,6 +1063,24 @@ async function rejectRecipe(id: number) {
   }
 }
 
+async function approveUnban(id: number) {
+  try {
+    await axios.post(`/api/recipes/${id}/unban-approve`, {}, { headers: { Authorization: `Bearer ${authStore.token}` } })
+    appealingRecipes.value = appealingRecipes.value.filter(r => r.id !== id)
+  } catch (e: any) {
+    alert(e.response?.data?.detail || '操作失败')
+  }
+}
+
+async function rejectUnban(id: number) {
+  try {
+    await axios.post(`/api/recipes/${id}/unban-reject`, {}, { headers: { Authorization: `Bearer ${authStore.token}` } })
+    appealingRecipes.value = appealingRecipes.value.filter(r => r.id !== id)
+  } catch (e: any) {
+    alert(e.response?.data?.detail || '操作失败')
+  }
+}
+
 // ========== 管理员管理 ==========
 async function createAdmin() {
   formError.value = ''
@@ -1124,7 +1202,6 @@ async function getalladmins() {
         <h1>管理中心</h1>
         <p>管理员: {{ authStore.account }} ({{ isSuperAdmin ? '超级管理员' : '普通管理员' }})</p>
       </div>
-      <button class="btn-logout" @click="logout">退出登录</button>
     </div>
 
     <!-- 0级管理员：管理员管理 -->
@@ -1165,41 +1242,51 @@ async function getalladmins() {
     <div v-if="isNormalAdmin" class="admin-tabs">
       <button
         :class="['tab', { active: activeTab === 'pending' }]"
-        @click="activeTab = 'pending'"
+        @click="activeTab = 'pending'; loadPendingRecipes(); loadAppealingRecipes()"
       >
         待审核食谱
-        <span v-if="pendingRecipes.length" class="badge">{{ pendingRecipes.length }}</span>
+        <span v-if="pendingRecipes.length + appealingRecipes.length" class="badge">{{ pendingRecipes.length + appealingRecipes.length }}</span>
       </button>
       <button
         :class="['tab', { active: activeTab === 'users' }]"
-        @click="activeTab = 'users'"
+        @click="activeTab = 'users'; loadUsers()"
       >
         用户管理
       </button>
       <button
         :class="['tab', { active: activeTab === 'recipes' }]"
-        @click="activeTab = 'recipes'"
+        @click="activeTab = 'recipes'; loadAllRecipes()"
       >
         食谱管理
       </button>
       <button
         :class="['tab', { active: activeTab === 'ingredients' }]"
-        @click="activeTab = 'ingredients'"
+        @click="activeTab = 'ingredients'; loadIngredients()"
       >
         食材管理
       </button>
     </div>
 
     <!-- 待审核食谱 -->
-    <div v-if="isNormalAdmin && activeTab === 'pending'" class="admin-content">
-      <h2>待审核食谱</h2>
+    <div v-if="isNormalAdmin && activeTab === 'pending'" class="admin-tabs">
+      <button :class="['tab', { active: pendingTab === 'pending' }]" @click="pendingTab = 'pending'">
+        申请公开
+        <span v-if="pendingRecipes.length" class="badge">{{ pendingRecipes.length }}</span>
+      </button>
+      <button :class="['tab', { active: pendingTab === 'appealing' }]" @click="pendingTab = 'appealing'">
+        申请解封
+        <span v-if="appealingRecipes.length" class="badge">{{ appealingRecipes.length }}</span>
+      </button>
+    </div>
+    <div v-if="isNormalAdmin && activeTab === 'pending' && pendingTab === 'pending'" class="admin-content">
+      <h2>申请公开食谱</h2>
       <div v-if="pendingRecipes.length === 0" class="empty">
-        暂无待审核的食谱
+        暂无申请公开的食谱
       </div>
       <div v-else class="recipe-grid">
         <div v-for="recipe in pendingRecipes" :key="recipe.id" class="recipe-card">
           <div class="recipe-image" @click="openRecipeDetail(recipe.id)">
-            <img v-if="getRecipeFirstImage(recipe)" :src="getRecipeFirstImage(recipe)" :alt="recipe.name" class="cover-img" />
+            <img v-if="getRecipeFirstImage(recipe)" :src="getRecipeFirstImage(recipe)" :alt="recipe.name" class="cover-img" loading="lazy" />
             <span v-else class="recipe-emoji">{{ getRecipeEmoji(recipe.name) }}</span>
           </div>
           <div class="recipe-info">
@@ -1208,6 +1295,30 @@ async function getalladmins() {
             <div class="actions">
               <button class="btn-approve" @click="approveRecipe(recipe.id)">通过</button>
               <button class="btn-reject" @click="rejectRecipe(recipe.id)">拒绝</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 申请解封食谱 -->
+    <div v-if="isNormalAdmin && activeTab === 'pending' && pendingTab === 'appealing'" class="admin-content">
+      <h2>申请解封食谱</h2>
+      <div v-if="appealingRecipes.length === 0" class="empty">
+        暂无申请解封的食谱
+      </div>
+      <div v-else class="recipe-grid">
+        <div v-for="recipe in appealingRecipes" :key="recipe.id" class="recipe-card">
+          <div class="recipe-image" @click="openRecipeDetail(recipe.id)">
+            <img v-if="getRecipeFirstImage(recipe)" :src="getRecipeFirstImage(recipe)" :alt="recipe.name" class="cover-img" loading="lazy" />
+            <span v-else class="recipe-emoji">{{ getRecipeEmoji(recipe.name) }}</span>
+          </div>
+          <div class="recipe-info">
+            <h3>{{ recipe.name }}</h3>
+            <p class="meta">来源: {{ recipe.source }}</p>
+            <div class="actions">
+              <button class="btn-approve" @click="approveUnban(recipe.id)">解封</button>
+              <button class="btn-reject" @click="rejectUnban(recipe.id)">拒绝</button>
             </div>
           </div>
         </div>
@@ -1308,21 +1419,35 @@ async function getalladmins() {
       <div v-else class="recipe-grid">
         <div v-for="recipe in filteredRecipes" :key="recipe.id" class="recipe-card">
           <div class="recipe-image" @click="openRecipeDetail(recipe.id)">
-            <img v-if="getRecipeFirstImage(recipe)" :src="getRecipeFirstImage(recipe)" :alt="recipe.name" class="cover-img" />
+            <img v-if="getRecipeFirstImage(recipe)" :src="getRecipeFirstImage(recipe)" :alt="recipe.name" class="cover-img" loading="lazy" />
             <span v-else class="recipe-emoji">{{ getRecipeEmoji(recipe.name) }}</span>
           </div>
           <div class="recipe-info">
             <h3>{{ recipe.name }}</h3>
             <p class="meta">菜系: {{ recipe.cuisine }}</p>
-            <span class="status" :class="{ public: recipe.status === 'public' }">
-              {{ recipe.status === 'public' ? '已公开' : (recipe.status === 'private' ? '私密' : '待审核') }}
+            <p v-if="recipe.creator_account" class="meta">用户创建</p>
+            <span class="status" :class="{ public: recipe.status === 'public', banned: recipe.status === 'banned', pending: recipe.status === 'pending', appealing: recipe.status === 'appealing' }">
+              {{ recipe.status === 'banned' ? '已封禁' : (recipe.status === 'public' ? '已公开' : (recipe.status === 'appealing' ? '申请解封' : '申请公开')) }}
             </span>
             <div class="actions">
-              <button class="btn-edit" @click="openRecipeCreate(recipe)">编辑</button>
-              <button class="btn-toggle" @click="toggleRecipeVisibility(recipe.id, recipe.status)">
-                {{ recipe.status === 'public' ? '设为私密' : '设为公开' }}
-              </button>
-              <button class="btn-delete-small" @click="deleteRecipe(recipe.id)">删除</button>
+              <!-- 系统食谱：可编辑、可删除、可设私密 -->
+              <template v-if="isEditable(recipe)">
+                <button class="btn-edit" @click="openRecipeCreate(recipe)">编辑</button>
+                <button class="btn-toggle" @click="toggleRecipeVisibility(recipe.id, recipe.status)">
+                  {{ recipe.status === 'public' ? '设为私密' : '设为公开' }}
+                </button>
+                <button class="btn-delete-small" @click="deleteRecipe(recipe.id)">删除</button>
+              </template>
+              <!-- 用户食谱：显示食谱状态，可封禁 -->
+              <template v-else>
+                <button v-if="recipe.status === 'public'" class="btn-toggle" @click="toggleRecipeVisibility(recipe.id, recipe.status)">
+                  封禁
+                </button>
+                <button v-if="recipe.status === 'pending'" class="btn-toggle" @click="approveRecipe(recipe.id)">通过</button>
+                <button v-if="recipe.status === 'pending'" class="btn-reject" @click="rejectRecipe(recipe.id)">拒绝</button>
+                <button v-if="recipe.status === 'appealing'" class="btn-toggle" @click="approveUnban(recipe.id)">解封</button>
+                <button v-if="recipe.status === 'appealing'" class="btn-reject" @click="rejectUnban(recipe.id)">拒绝</button>
+              </template>
             </div>
           </div>
         </div>
@@ -1343,7 +1468,7 @@ async function getalladmins() {
       <div v-else class="ingredient-list">
         <div v-for="ing in ingredients" :key="ing.id" class="ingredient-item">
           <div class="ingredient-image">
-            <img v-if="getIngredientImage(ing)" :src="getIngredientImage(ing)" :alt="Array.isArray(ing.name) ? ing.name[0] : ing.name" class="cover-img" />
+            <img v-if="getIngredientImage(ing)" :src="getIngredientImage(ing)" :alt="Array.isArray(ing.name) ? ing.name[0] : ing.name" class="cover-img" loading="lazy" />
             <span v-else class="ingredient-emoji">{{ getIngredientEmoji(ing.category) }}</span>
           </div>
           <div class="ingredient-info" @click="openIngredientDetail(ing.id)">
@@ -1413,7 +1538,7 @@ async function getalladmins() {
             <label>封面图片</label>
             <div class="cover-upload-area">
               <div v-if="ingredientForm.picture_url" class="cover-preview-item">
-                <img :src="ingredientForm.picture_url" alt="封面" />
+                <img :src="ingredientForm.picture_url" alt="封面" loading="lazy" />
                 <button class="btn-remove-cover" @click="removeIngredientCover">×</button>
               </div>
               <div v-else class="cover-input-wrapper">
@@ -1453,11 +1578,11 @@ async function getalladmins() {
         </div>
 
         <div class="form-group">
-          <label>封面图片</label>
-          <div class="cover-upload-area">
+          <label>封面图片 <span v-if="!isEditingSystemRecipe" class="form-hint">(用户食谱不可修改封面)</span></label>
+          <div class="cover-upload-area" v-if="isEditingSystemRecipe">
             <div v-if="recipeForm.pictures_url && recipeForm.pictures_url.length > 0" class="cover-list">
               <div v-for="(url, idx) in recipeForm.pictures_url" :key="idx" class="cover-item">
-                <img :src="url" alt="封面" />
+                <img :src="url" alt="封面" loading="lazy" />
                 <button class="btn-remove-cover" @click="removeRecipeCover(idx)">×</button>
               </div>
             </div>
@@ -1468,8 +1593,16 @@ async function getalladmins() {
                 <span v-else>+ 添加封面</span>
               </label>
             </div>
+            <p class="form-hint">最多3张封面图片</p>
           </div>
-          <p class="form-hint">最多3张封面图片</p>
+          <div v-else class="cover-display-only">
+            <div v-if="recipeForm.pictures_url && recipeForm.pictures_url.length > 0" class="cover-list">
+              <div v-for="(url, idx) in recipeForm.pictures_url" :key="idx" class="cover-item">
+                <img :src="url" alt="封面" loading="lazy" />
+              </div>
+            </div>
+            <p v-else class="form-hint">无封面图片</p>
+          </div>
         </div>
 
         <div class="form-row">
@@ -1656,6 +1789,12 @@ async function getalladmins() {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.cover-display-only {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
 .cover-input-label {
@@ -1937,6 +2076,48 @@ async function getalladmins() {
   flex-wrap: wrap;
 }
 
+/* Nav Cards */
+.admin-nav-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1.5rem;
+  padding: 2rem;
+}
+
+.nav-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 2rem;
+  background: white;
+  border-radius: 16px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.nav-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+}
+
+.nav-icon {
+  font-size: 2.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.nav-text {
+  font-size: 1.1rem;
+  font-weight: 500;
+  color: #333;
+}
+
+.nav-desc {
+  font-size: 0.8rem;
+  color: #78909c;
+  margin-top: 0.25rem;
+}
+
 .tab {
   padding: 0.8rem 1.5rem;
   border: none;
@@ -2058,6 +2239,18 @@ async function getalladmins() {
   color: #4caf50;
 }
 
+.status.banned {
+  color: #f44336;
+}
+
+.status.pending {
+  color: #ff9800;
+}
+
+.status.appealing {
+  color: #9c27b0;
+}
+
 .actions {
   display: flex;
   gap: 0.5rem;
@@ -2097,6 +2290,17 @@ async function getalladmins() {
   border: 1px solid #4caf50;
   background: white;
   color: #4caf50;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.btn-reject {
+  flex: 1;
+  padding: 0.4rem;
+  border: 1px solid #f44336;
+  background: white;
+  color: #f44336;
   border-radius: 6px;
   cursor: pointer;
   font-size: 0.8rem;

@@ -64,7 +64,7 @@ function getRecipeEmoji(name: string): string {
   <div class="ingredient-detail" v-if="ingredient">
     <div class="ingredient-header">
       <div class="ingredient-emoji-large">
-        <img v-if="getIngredientImage()" :src="getIngredientImage()" :alt="Array.isArray(ingredient.name) ? ingredient.name[0] : ingredient.name" class="cover-img" />
+        <img v-if="getIngredientImage()" :src="getIngredientImage()" :alt="Array.isArray(ingredient.name) ? ingredient.name[0] : ingredient.name" class="cover-img" loading="lazy" />
         <span v-else>{{ getIngredientEmoji(ingredient.category) }}</span>
       </div>
       <div class="ingredient-title">

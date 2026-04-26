@@ -1,5 +1,5 @@
 """食谱路由"""
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -12,12 +12,25 @@ from app.models.admin import Admin
 from app.models.person import Person
 from app.models.user import User
 from app.models.ingredient import Ingredient
-from app.schemas.recipe import RecipeCreate, RecipeUpdate, RecipeResponse
+from app.schemas.recipe import RecipeCreate, RecipeUpdate, RecipeResponse, RecipeStatus
 from app.dependencies import get_current_admin, get_current_user, require_admin
 from app.utils.text_filter import TextFilter
 from app.utils.jwt import decode_access_token
+from app.utils.storage import get_storage
 
 router = APIRouter(prefix="/recipes", tags=["食谱"])
+
+
+def delete_old_file(old_url: str):
+    """删除旧文件"""
+    if not old_url:
+        return
+    try:
+        storage = get_storage()
+        storage.delete(old_url)
+    except Exception:
+        # 删除失败静默处理，不影响主流程
+        pass
 
 
 # 新建一个独立的路由，专门用于搜索
@@ -143,7 +156,7 @@ def list_recipes(
 
     query = db.query(Recipe).filter(
         Recipe.is_delete == False,
-        Recipe.status == RecipeStatus.PUBLIC  # 只显示公开的
+        Recipe.status == RecipeStatus.PUBLIC  # 只显示公开的，排除封禁的
     )
 
     if cuisine:
@@ -224,7 +237,7 @@ def list_pending_recipes(
     db: Session = Depends(get_db),
     admin: Admin = Depends(require_admin)
 ):
-    """获取待审核的食谱列表 (管理员)"""
+    """获取申请公开的食谱列表 (管理员) - 仅 pending"""
     from app.schemas.recipe import RecipeStatus
 
     recipes = db.query(Recipe).filter(
@@ -242,9 +255,84 @@ def list_pending_recipes(
     return result
 
 
+@router.get("/appealing", response_model=List[RecipeResponse])
+def list_appealing_recipes(
+    skip: int = 0,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    admin: Admin = Depends(require_admin)
+):
+    """获取申请解封的食谱列表 (管理员)"""
+    from app.schemas.recipe import RecipeStatus
+
+    recipes = db.query(Recipe).filter(
+        Recipe.is_delete == False,
+        Recipe.status == RecipeStatus.APPEALING,
+        Recipe.creator_account.isnot(None)  # 用户分享的
+    ).offset(skip).limit(limit).all()
+
+    # 为每个食谱添加来源头像
+    result = []
+    for recipe in recipes:
+        recipe_dict = enrich_recipe_with_source_avatar(recipe, db)
+        result.append(recipe_dict)
+
+    return result
+
+
+@router.get("/banned", response_model=List[RecipeResponse])
+def list_banned_recipes(
+    skip: int = 0,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    admin: Admin = Depends(require_admin)
+):
+    """获取已封禁的食谱列表 (管理员)"""
+    from app.schemas.recipe import RecipeStatus
+
+    recipes = db.query(Recipe).filter(
+        Recipe.is_delete == False,
+        Recipe.status == RecipeStatus.BANNED,
+        Recipe.creator_account.isnot(None)  # 用户分享的
+    ).offset(skip).limit(limit).all()
+
+    # 为每个食谱添加来源头像
+    result = []
+    for recipe in recipes:
+        recipe_dict = enrich_recipe_with_source_avatar(recipe, db)
+        result.append(recipe_dict)
+
+    return result
+
+
 @router.get("/{recipe_id}", response_model=RecipeResponse)
 def get_recipe(recipe_id: int, db: Session = Depends(get_db)):
-    """获取单个食谱"""
+    """获取单个食谱（公开的）"""
+    recipe = db.query(Recipe).filter(
+        Recipe.id == recipe_id,
+        Recipe.is_delete == False,
+        Recipe.status != RecipeStatus.BANNED  # 排除封禁的
+    ).first()
+
+    if not recipe:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="食谱不存在"
+        )
+
+    # 添加来源头像
+    return enrich_recipe_with_source_avatar(recipe, db)
+
+
+@router.get("/{recipe_id}/detail", response_model=RecipeResponse)
+def get_recipe_detail(
+    recipe_id: int,
+    db: Session = Depends(get_db),
+    person: Person = Depends(get_current_user)
+):
+    """获取食谱详情（所有者可查看自己封禁的食谱）"""
+    from app.schemas.recipe import RecipeStatus
+
     recipe = db.query(Recipe).filter(
         Recipe.id == recipe_id,
         Recipe.is_delete == False
@@ -255,6 +343,19 @@ def get_recipe(recipe_id: int, db: Session = Depends(get_db)):
             status_code=status.HTTP_404_NOT_FOUND,
             detail="食谱不存在"
         )
+
+    # 检查是否是管理员
+    admin = db.query(Admin).filter(Admin.account == person.account).first()
+    is_admin = admin is not None and (not admin.permission_until or admin.permission_until >= datetime.now())
+
+    # 封禁的食谱只有所有者和管理员可以查看
+    if recipe.status == RecipeStatus.BANNED:
+        is_owner = recipe.creator_account == person.account
+        if not is_owner and not is_admin:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="该食谱已被封禁"
+            )
 
     # 添加来源头像
     return enrich_recipe_with_source_avatar(recipe, db)
@@ -482,6 +583,15 @@ def update_my_recipe(
     update_data.pop('creator_account', None)
     update_data.pop('status', None)  # 用户不能修改状态
 
+    # 删除旧的展示图片
+    if "pictures_url" in update_data and update_data["pictures_url"]:
+        old_pictures = db_recipe.pictures_url or []
+        new_pictures = update_data["pictures_url"]
+        if isinstance(old_pictures, list) and isinstance(new_pictures, list):
+            for old_url in old_pictures:
+                if old_url and old_url not in new_pictures:
+                    delete_old_file(old_url)
+
     # 过滤违禁词
     update_data = filter_recipe_fields(update_data)
 
@@ -564,11 +674,14 @@ def share_my_recipe(
 @router.put("/{recipe_id}/visibility", response_model=RecipeResponse)
 def set_recipe_visibility(
     recipe_id: int,
-    status: str,
+    status: str = Body(..., embed=True),
     person: Person = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """设置食谱状态 (用户只能操作自己的食谱，只有公开状态可以设为私密)"""
+    """设置食谱状态
+    - 用户只能操作自己的食谱，将公开的食谱设为私密
+    - 管理员只能封禁用户已公开的食谱，不能直接设为公开
+    """
     from app.schemas.recipe import RecipeStatus
 
     recipe = db.query(Recipe).filter(Recipe.id == recipe_id).first()
@@ -579,43 +692,114 @@ def set_recipe_visibility(
             detail="食谱不存在"
         )
 
-    # 检查是否是自己的食谱
+    # 检查是否是管理员
+    admin = db.query(Admin).filter(Admin.account == person.account).first()
+    is_admin = admin is not None and (not admin.permission_until or admin.permission_until >= datetime.now())
+
+    if is_admin:
+        # 管理员操作：只能将公开设为封禁，不能操作系统食谱
+        if not recipe.creator_account:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="管理员不能操作系统食谱"
+            )
+
+        # 管理员只能设为封禁，不能恢复公开
+        if status != "banned":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="管理员只能封禁食谱"
+            )
+
+        # 只有公开的食谱可以封禁
+        if recipe.status != RecipeStatus.PUBLIC:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="只有公开的食谱可以封禁"
+            )
+    else:
+        # 普通用户操作：只能操作自己的食谱
+        if recipe.creator_account != person.account:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="只能操作自己的食谱"
+            )
+
+        # 检查是否是系统食谱
+        if not recipe.creator_account:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="系统食谱无法修改状态"
+            )
+
+        # 用户只能将公开的食谱设为私密
+        if status == "private" and recipe.status != RecipeStatus.PUBLIC:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="只有公开的食谱可以设为私密"
+            )
+
+        # 用户不能直接设为公开
+        if status == "public":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="请使用分享功能提交审核"
+            )
+
+    # 验证status值
+    if status not in ["private", "banned"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="无效的状态值"
+        )
+
+    recipe.status = RecipeStatus.PRIVATE if status == "private" else RecipeStatus.BANNED
+
+    db.commit()
+    db.refresh(recipe)
+    return recipe
+
+
+@router.put("/{recipe_id}/unban", response_model=RecipeResponse)
+def unban_recipe(
+    recipe_id: int,
+    person: Person = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """用户申请解封 - 将封禁的食谱设为待审核"""
+    from app.schemas.recipe import RecipeStatus
+
+    recipe = db.query(Recipe).filter(Recipe.id == recipe_id).first()
+
+    if not recipe:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="食谱不存在"
+        )
+
+    # 只能操作自己的食谱
     if recipe.creator_account != person.account:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="只能操作自己的食谱"
         )
 
-    # 检查是否是系统食谱（管理员创建的）
+    # 检查是否是系统食谱
     if not recipe.creator_account:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="系统食谱无法修改状态"
+            detail="系统食谱无需解封"
         )
 
-    # 只有公开状态的食谱可以设为私密
-    if status == "private" and recipe.status != RecipeStatus.PUBLIC:
+    # 必须是封禁状态才能申请解封
+    if recipe.status != RecipeStatus.BANNED:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="只有公开的食谱可以设为私密"
+            detail="只有封禁的食谱可以申请解封"
         )
 
-    # 设为公开时，如果是待审核状态则不允许
-    if status == "public" and recipe.status == RecipeStatus.PENDING:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="待审核的食谱无法直接公开"
-        )
-
-    # 验证status值
-    if status not in ["private", "public"]:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="无效的状态值"
-        )
-
-    recipe.status = RecipeStatus.PRIVATE if status == "private" else RecipeStatus.PUBLIC
-
+    # 设为申请解封状态
+    recipe.status = RecipeStatus.APPEALING
     db.commit()
     db.refresh(recipe)
     return recipe
@@ -627,7 +811,7 @@ def approve_recipe(
     db: Session = Depends(get_db),
     admin: Admin = Depends(require_admin)
 ):
-    """审核通过食谱 (管理员)"""
+    """审核通过食谱 (管理员) - 仅限申请公开的待审核"""
     from app.schemas.recipe import RecipeStatus
 
     recipe = db.query(Recipe).filter(Recipe.id == recipe_id).first()
@@ -645,7 +829,89 @@ def approve_recipe(
             detail="系统食谱无需审核"
         )
 
+    # 必须是申请公开状态才能审核通过
+    if recipe.status != RecipeStatus.PENDING:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="只有申请公开的食谱可以审核通过"
+        )
+
     recipe.status = RecipeStatus.PUBLIC
+    db.commit()
+    db.refresh(recipe)
+    return recipe
+
+
+@router.post("/{recipe_id}/unban-approve", response_model=RecipeResponse)
+def approve_unban_recipe(
+    recipe_id: int,
+    db: Session = Depends(get_db),
+    admin: Admin = Depends(require_admin)
+):
+    """审核通过解封申请 (管理员)"""
+    from app.schemas.recipe import RecipeStatus
+
+    recipe = db.query(Recipe).filter(Recipe.id == recipe_id).first()
+
+    if not recipe:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="食谱不存在"
+        )
+
+    # 检查是否是用户分享的食谱
+    if not recipe.creator_account:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="系统食谱无需审核"
+        )
+
+    # 必须是申请解封状态才能审核通过
+    if recipe.status != RecipeStatus.APPEALING:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="只有申请解封的食谱可以审核通过"
+        )
+
+    recipe.status = RecipeStatus.PUBLIC
+    db.commit()
+    db.refresh(recipe)
+    return recipe
+
+
+@router.post("/{recipe_id}/unban-reject", response_model=RecipeResponse)
+def reject_unban_recipe(
+    recipe_id: int,
+    db: Session = Depends(get_db),
+    admin: Admin = Depends(require_admin)
+):
+    """审核拒绝解封申请 (管理员) - 食谱保持封禁状态"""
+    from app.schemas.recipe import RecipeStatus
+
+    recipe = db.query(Recipe).filter(Recipe.id == recipe_id).first()
+
+    if not recipe:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="食谱不存在"
+        )
+
+    # 检查是否是用户分享的食谱
+    if not recipe.creator_account:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="系统食谱无需审核"
+        )
+
+    # 申请解封状态才能拒绝
+    if recipe.status != RecipeStatus.APPEALING:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="只有申请解封的食谱可以拒绝"
+        )
+
+    # 拒绝后保持封禁状态
+    recipe.status = RecipeStatus.BANNED
     db.commit()
     db.refresh(recipe)
     return recipe
@@ -675,6 +941,13 @@ def reject_recipe(
             detail="系统食谱无需审核"
         )
 
+    # 只能是待审核状态才能拒绝
+    if recipe.status != RecipeStatus.PENDING:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="只有待审核的食谱可以拒绝"
+        )
+
     recipe.status = RecipeStatus.PRIVATE
     db.commit()
     db.refresh(recipe)
@@ -686,9 +959,9 @@ def update_recipe(
     recipe_id: int,
     recipe_update: RecipeUpdate,
     db: Session = Depends(get_db),
-    person: Person = Depends(get_current_user)
+    person = Depends(get_current_user)
 ):
-    """更新食谱 (管理员或食谱所有者)"""
+    """更新食谱 (管理员只能修改系统食谱，用户只能修改自己的食谱)"""
     db_recipe = db.query(Recipe).filter(Recipe.id == recipe_id).first()
 
     if not db_recipe:
@@ -701,8 +974,16 @@ def update_recipe(
     admin = db.query(Admin).filter(Admin.account == person.account).first()
     is_admin = admin is not None and (not admin.permission_until or admin.permission_until >= datetime.now())
 
-    # 检查权限：管理员可以更新任何食谱，用户只能更新自己创建的食谱
-    if not is_admin:
+    # 权限检查
+    if is_admin:
+        # 管理员只能修改系统食谱
+        if db_recipe.creator_account:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="管理员只能修改系统食谱"
+            )
+    else:
+        # 普通用户只能修改自己的食谱
         if not db_recipe.creator_account:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -739,7 +1020,7 @@ def delete_recipe(
     db: Session = Depends(get_db),
     person: Person = Depends(get_current_user)
 ):
-    """删除食谱 (软删除, 管理员或食谱所有者)"""
+    """删除食谱 (管理员只能删除系统食谱，用户只能删除自己的食谱)"""
     db_recipe = db.query(Recipe).filter(Recipe.id == recipe_id).first()
 
     if not db_recipe:
@@ -752,8 +1033,16 @@ def delete_recipe(
     admin = db.query(Admin).filter(Admin.account == person.account).first()
     is_admin = admin is not None and (not admin.permission_until or admin.permission_until >= datetime.now())
 
-    # 检查权限：管理员可以删除任何食谱，用户只能删除自己创建的食谱
-    if not is_admin:
+    # 权限检查
+    if is_admin:
+        # 管理员只能删除系统食谱
+        if db_recipe.creator_account:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="管理员只能删除系统食谱"
+            )
+    else:
+        # 普通用户只能删除自己的食谱
         if not db_recipe.creator_account:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

@@ -8,7 +8,9 @@ class RecipeStatus(str, Enum):
     """食谱状态枚举"""
     PRIVATE = "private"  # 私密
     PUBLIC = "public"    # 公开
-    PENDING = "pending"  # 待审核
+    PENDING = "pending"  # 待审核(申请公开)
+    APPEALING = "appealing"  # 待审核(申请解封)
+    BANNED = "banned"   # 封禁
 
 
 class MaterialItem(BaseModel):
@@ -77,7 +79,7 @@ class RecipeBase(BaseModel):
 
 
 class RecipeCreate(RecipeBase):
-    status: Optional[RecipeStatus] = Field(RecipeStatus.PRIVATE, description="状态: private(私密)/public(公开)/pending(待审核)")
+    status: Optional[RecipeStatus] = Field(RecipeStatus.PRIVATE, description="状态: private(私密)/public(公开)/pending(待审核)/banned(封禁)")
 
 
 class RecipeUpdate(BaseModel):
@@ -94,36 +96,9 @@ class RecipeUpdate(BaseModel):
     minerals: Optional[List[str]] = Field(None, description="矿物质列表")
     is_halal: Optional[bool] = Field(None, description="是否清真")
     allergens: Optional[List[str]] = Field(None, description="过敏食材列表")
-    status: Optional[RecipeStatus] = Field(None, description="状态: private(私密)/public(公开)/pending(待审核)")
-    method: Optional[str] = Field(None, description="烹饪方式: 蒸/煮/炸/炒/焖/拌/卤/烤/煎/腌/其他")
-    pictures_url: Optional[List[str]] = Field(None, description="展示图片地址列表，最多3个")
-
-    @field_validator('cuisine', mode='before')
-    @classmethod
-    def validate_cuisine(cls, v):
-        if v is None:
-            return v
-        if v not in settings.CUISINES:
-            return "其他"
-        return v
-
-    @field_validator('method', mode='before')
-    @classmethod
-    def validate_method(cls, v):
-        if v is None:
-            return v
-        if v not in settings.METHODS:
-            return "其他"
-        return v
-
-    @field_validator('carbohydrate', 'protein', 'fat', mode='before')
-    @classmethod
-    def round_to_two_decimals(cls, v):
-        if v is None:
-            return v
-        if isinstance(v, (int, float)):
-            return round(v, 2)
-        return v
+    status: Optional[RecipeStatus] = Field(None, description="状态")
+    method: Optional[str] = Field(None, description="烹饪方式")
+    pictures_url: Optional[List[str]] = Field(None, description="展示图片地址列表")
 
 
 class RecipeResponse(RecipeBase):

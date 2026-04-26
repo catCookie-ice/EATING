@@ -47,7 +47,24 @@ onMounted(async () => {
   await authStore.init()
   try {
     const id = Number(route.params.id)
-    const res = await axios.get(`/api/recipes/${id}`)
+    let res
+    // 已登录用户尝试获取完整详情（包含可能封禁的食谱）
+    if (authStore.isLoggedIn) {
+      try {
+        res = await axios.get(`/api/recipes/${id}/detail`, {
+          headers: { Authorization: `Bearer ${authStore.token}` }
+        })
+      } catch (e: any) {
+        // 如果是封禁的食谱403错误，则尝试获取公开版本
+        if (e.response?.status === 403) {
+          res = await axios.get(`/api/recipes/${id}`)
+        } else {
+          throw e
+        }
+      }
+    } else {
+      res = await axios.get(`/api/recipes/${id}`)
+    }
     recipe.value = res.data
 
     // 设置页面标题
@@ -121,7 +138,7 @@ function parseSteps(steps: any[]): { 步骤: number; 操作: string }[] {
 
     <div class="recipe-header">
       <div class="recipe-emoji-large">
-        <img v-if="getFirstImage()" :src="getFirstImage()" :alt="recipe.name" class="cover-img" />
+        <img v-if="getFirstImage()" :src="getFirstImage()" :alt="recipe.name" class="cover-img" loading="lazy" />
         <span v-else>{{ getRecipeEmoji(recipe.name) }}</span>
       </div>
       <div class="recipe-title">
@@ -134,7 +151,7 @@ function parseSteps(steps: any[]): { 步骤: number; 操作: string }[] {
         <p class="source">
           <template v-if="recipe.source === '系统'">来源: 系统</template>
           <template v-else-if="recipe.source_avatar_url">
-            <img :src="recipe.source_avatar_url" class="source-avatar" />
+            <img :src="recipe.source_avatar_url" class="source-avatar" loading="lazy" />
             来源: {{ recipe.source }}
           </template>
           <template v-else-if="recipe.source">来源: {{ recipe.source }}</template>
