@@ -3,8 +3,10 @@ import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
 import { holidayConfigs } from '../config/holidays'
+import { useAuthStore } from '../stores'
 
 const router = useRouter()
+const auth = useAuthStore()
 const featuredRecipes = ref<any[]>([])
 
 onMounted(async () => {
@@ -85,9 +87,26 @@ function parseContent(content: string): ContentPart[] {
 
 const contentParts = computed(() => parseContent(holidayContent.value))
 const hasHoliday = computed(() => !!holidayContent.value)
+const isLoggedIn = computed(() => auth.isLoggedIn)
 
 function handleLinkClick(url: string) {
   router.push(url)
+}
+
+// AI 胶囊动画状态
+const showAICapsule = ref(true)
+
+function handleAIClick() {
+  // 放大淡出动画
+  const capsule = document.querySelector('.ai-capsule') as HTMLElement
+  if (capsule) {
+    capsule.style.transition = 'all 0.5s ease'
+    capsule.style.transform = 'scale(1.5)'
+    capsule.style.opacity = '0'
+    setTimeout(() => {
+      router.push('/chat')
+    }, 500)
+  }
 }
 </script>
 
@@ -125,6 +144,9 @@ function handleLinkClick(url: string) {
         <div class="floating-card card-1">🥗 轻食沙拉</div>
         <div class="floating-card card-2">🍲 营养汤品</div>
         <div class="floating-card card-3">🍜 美味主食</div>
+        <div v-if="isLoggedIn" class="ai-capsule" @click="handleAIClick">
+          🤖 AI 助手
+        </div>
       </div>
     </section>
 
@@ -146,7 +168,7 @@ function handleLinkClick(url: string) {
           @click="goToRecipe(recipe.id)"
         >
           <div class="recipe-image">
-            <img v-if="getFirstImage(recipe)" :src="getFirstImage(recipe)" :alt="recipe.name" class="cover-img" />
+            <img v-if="getFirstImage(recipe)" :src="getFirstImage(recipe)" :alt="recipe.name" class="cover-img" loading="lazy" />
             <span v-else class="recipe-emoji">{{ getRecipeEmoji(recipe.name) }}</span>
           </div>
           <div class="recipe-info">
@@ -160,7 +182,7 @@ function handleLinkClick(url: string) {
               <span class="tag method">{{ recipe.method || '家常' }}</span>
               <span v-if="recipe.source === '系统'" class="tag official">官方</span>
               <span v-else-if="recipe.source" class="tag user-source">
-                <img v-if="recipe.source_avatar_url" :src="recipe.source_avatar_url" class="source-avatar" />
+                <img v-if="recipe.source_avatar_url" :src="recipe.source_avatar_url" class="source-avatar" loading="lazy" />
                 {{ recipe.source }}
               </span>
             </div>
@@ -326,6 +348,25 @@ function handleLinkClick(url: string) {
   bottom: 20px;
   left: 60px;
   animation-delay: 1s;
+}
+
+.ai-capsule {
+  position: absolute;
+  bottom: 20px;
+  right: 20px;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: white;
+  padding: 0.8rem 1.5rem;
+  border-radius: 30px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+  animation: aiPulse 2s ease-in-out infinite;
+}
+
+@keyframes aiPulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4); }
+  50% { transform: scale(1.05); box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6); }
 }
 
 @keyframes float {

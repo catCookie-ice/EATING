@@ -62,13 +62,13 @@ const showLoading = computed(() => {
           <RouterLink to="/" class="nav-link">首页</RouterLink>
           <RouterLink to="/recipes" class="nav-link">食谱</RouterLink>
           <RouterLink to="/ingredients" class="nav-link">食材</RouterLink>
+          <RouterLink v-if="auth.isLoggedIn" to="/chat" class="nav-link">AI 聊天</RouterLink>
           <RouterLink v-if="auth.isLoggedIn" to="/profile" class="nav-link">我的</RouterLink>
           <RouterLink v-else to="/login" class="nav-link">登录</RouterLink>
         </nav>
 
         <!-- 管理员导航 -->
         <nav class="nav" v-else>
-          <RouterLink to="/profile" class="nav-link">个人中心</RouterLink>
           <RouterLink to="/admin" class="nav-link">管理后台</RouterLink>
           <a @click="auth.logout()" class="nav-link logout">退出</a>
         </nav>

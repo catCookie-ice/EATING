@@ -54,6 +54,11 @@ const router = createRouter({
       path: '/profile/browse-history',
       name: 'browse-history',
       component: () => import('../views/BrowseHistoryView.vue')
+    },
+    {
+      path: '/chat',
+      name: 'chat',
+      component: () => import('../views/ChatView.vue')
     }
   ]
 })

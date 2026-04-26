@@ -11,6 +11,8 @@ class StorageType(str, Enum):
 
 
 class Settings(BaseSettings):
+    model_config = {"extra": "ignore", "env_file": ".env", "env_file_encoding": "utf-8"}
+
     # Database
     DATABASE_URL: str = "mysql+pymysql://root:password@localhost:3306/eating"
 
@@ -47,8 +49,8 @@ class Settings(BaseSettings):
     # 烹饪方式列表
     METHODS: List[str] = ["蒸", "煮", "炸", "炒", "焖", "拌", "卤", "烤", "煎", "腌","炖", "其他"]
 
-    class Config:
-        env_file = ".env"
-
+    # DeepSeek AI 配置
+    DEEPSEEK_API_KEY: Optional[str] = None
+    DEEPSEEK_MODEL: str = "deepseek-chat"
 
 settings = Settings()

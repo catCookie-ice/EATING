@@ -10,3 +10,4 @@ python-jose[cryptography]
 python-multipart
 passlib
 cos-python-sdk-v5
+openai>=1.0.0

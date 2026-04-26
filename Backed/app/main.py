@@ -11,7 +11,7 @@ import os
 from app.database import engine, Base, get_db
 from app.models.person import Person
 from app.models.admin import Admin
-from app.routers import auth, ingredients, recipes, users, admins, upload
+from app.routers import auth, ingredients, recipes, users, admins, upload, chat
 from app.config import settings
 from app.utils.password import hash_password
 
@@ -97,6 +97,7 @@ app.include_router(recipes.router_search, prefix="/api")
 app.include_router(users.router, prefix="/api")
 app.include_router(admins.router, prefix="/api")
 app.include_router(upload.router, prefix="/api")
+app.include_router(chat.router, prefix="/api")
 
 # 添加静态文件服务（上传的图片）
 upload_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), settings.LOCAL_UPLOAD_DIR)
