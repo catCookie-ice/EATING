@@ -15,5 +15,6 @@ class Ingredient(Base):
     category = Column(String(50), nullable=False, comment="种类")
     is_halal = Column(Boolean, default=False, comment="是否清真")
     is_allergen = Column(Boolean, default=False, comment="是否易过敏")
+    is_ai = Column(Boolean, default=False, comment="是否由AI自动添加")
     is_delete = Column(Boolean, default=False, comment="软删除")
     picture_url = Column(String(500), nullable=True, comment="展示图片地址")

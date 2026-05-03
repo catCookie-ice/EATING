@@ -2,6 +2,7 @@ from pydantic import BaseModel, Field, ConfigDict, field_validator, model_valida
 from typing import Optional, List, Dict, Any
 from enum import Enum
 from app.config import settings
+from app.schemas.user import TastePreference
 
 
 class RecipeStatus(str, Enum):
@@ -43,6 +44,7 @@ class RecipeBase(BaseModel):
     is_halal: bool = Field(False, description="是否清真")
     allergens: Optional[List[str]] = Field(None, description="过敏食材列表")
     method: Optional[str] = Field(None, description="烹饪方式: 蒸/煮/炸/炒/焖/拌/卤/烤/煎/腌/其他")
+    taste: Optional[TastePreference] = Field(None, description="口味占比：酸甜苦辣咸占比")
     pictures_url: Optional[List[str]] = Field(None, description="展示图片地址列表，最多3个")
 
     @field_validator('cuisine', mode='before')
@@ -98,6 +100,7 @@ class RecipeUpdate(BaseModel):
     allergens: Optional[List[str]] = Field(None, description="过敏食材列表")
     status: Optional[RecipeStatus] = Field(None, description="状态")
     method: Optional[str] = Field(None, description="烹饪方式")
+    taste: Optional[TastePreference] = Field(None, description="口味占比：酸甜苦辣咸占比")
     pictures_url: Optional[List[str]] = Field(None, description="展示图片地址列表")
 
 
@@ -108,7 +111,16 @@ class RecipeResponse(RecipeBase):
     status: RecipeStatus = Field(RecipeStatus.PRIVATE, description="状态: private(私密)/public(公开)/pending(待审核)")
     creator_account: Optional[str] = Field(None, description="创建者账户")
     method: Optional[str] = Field(None, description="烹饪方式: 蒸/煮/炸/炒/焖/拌/卤/烤/煎/腌/其他")
+    taste: Optional[TastePreference] = Field(None, description="口味占比：酸甜苦辣咸占比")
     pictures_url: Optional[List[str]] = Field(None, description="展示图片地址列表，最多3个")
     source_avatar_url: Optional[str] = Field(None, description="来源头像URL（如果来源不是系统或官方）")
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class PaginatedRecipeResponse(BaseModel):
+    """分页食谱列表响应"""
+    total: int = Field(..., description="总数")
+    page: int = Field(..., description="当前页码")
+    page_size: int = Field(..., description="每页数量")
+    items: List[RecipeResponse] = Field(..., description="食谱列表")

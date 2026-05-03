@@ -4,13 +4,15 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 
 from app.database import get_db
+from app.config import settings
 from app.models.ingredient import Ingredient
 from app.models.recipe import Recipe
 from app.models.admin import Admin
-from app.schemas.ingredient import IngredientCreate, IngredientUpdate, IngredientResponse
+from app.schemas.ingredient import IngredientCreate, IngredientUpdate, IngredientResponse, PaginatedIngredientResponse
 from app.dependencies import require_admin
 from app.utils.text_filter import TextFilter
 from app.utils.storage import get_storage
+from app.utils.redis_cache import make_cache_key, get_cache, set_cache, delete_cache_pattern
 
 router = APIRouter(prefix="/ingredients", tags=["食材"])
 
@@ -48,6 +50,7 @@ def enrich_ingredient_with_picture_url(ingredient: Ingredient, db: Session) -> d
         "category": ingredient.category,
         "is_halal": ingredient.is_halal,
         "is_allergen": ingredient.is_allergen,
+        "is_ai": ingredient.is_ai,
         "is_delete": ingredient.is_delete,
     }
 
@@ -62,26 +65,57 @@ def enrich_ingredient_with_picture_url(ingredient: Ingredient, db: Session) -> d
     return ingredient_dict
 
 
-@router.get("/", response_model=List[IngredientResponse])
+@router.get("/", response_model=PaginatedIngredientResponse)
 def list_ingredients(
-    skip: int = 0,
-    limit: int = 100,
+    page: int = 1,
+    page_size: int = 20,
     category: str = None,
     db: Session = Depends(get_db)
 ):
-    """获取食材列表"""
+    """获取食材列表（分页 + Redis 缓存）"""
+    # 参数校验
+    if page < 1:
+        page = 1
+    if page_size < 1:
+        page_size = 20
+    if page_size > 100:
+        page_size = 100
+
+    # 尝试从缓存读取
+    cache_key = make_cache_key(
+        "ingredients:list",
+        page=page,
+        page_size=page_size,
+        category=category,
+    )
+    cached = get_cache(cache_key)
+    if cached is not None:
+        return cached
+
+    # 查询数据库
     query = db.query(Ingredient).filter(Ingredient.is_delete == False)
 
     if category:
         query = query.filter(Ingredient.category == category)
 
-    ingredients = query.offset(skip).limit(limit).all()
+    total = query.count()
+    ingredients = query.offset((page - 1) * page_size).limit(page_size).all()
 
     # 为每个食材添加解析后的封面URL
-    result = []
+    items = []
     for ingredient in ingredients:
         ingredient_dict = enrich_ingredient_with_picture_url(ingredient, db)
-        result.append(ingredient_dict)
+        items.append(ingredient_dict)
+
+    result = {
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "items": items,
+    }
+
+    # 写入缓存
+    set_cache(cache_key, result, ttl=settings.REDIS_CACHE_TTL_INGREDIENTS)
 
     return result
 
@@ -197,6 +231,8 @@ def create_ingredient(
     db.add(db_ingredient)
     db.commit()
     db.refresh(db_ingredient)
+    # 创建食材后使列表缓存失效
+    delete_cache_pattern("ingredients:list:*")
     return db_ingredient
 
 
@@ -234,6 +270,8 @@ def update_ingredient(
 
     db.commit()
     db.refresh(db_ingredient)
+    # 更新食材后使列表缓存失效
+    delete_cache_pattern("ingredients:list:*")
     return db_ingredient
 
 
@@ -254,5 +292,7 @@ def delete_ingredient(
 
     db_ingredient.is_delete = True
     db.commit()
+    # 删除食材后使列表缓存失效
+    delete_cache_pattern("ingredients:list:*")
 
     return {"message": "食材已删除"}

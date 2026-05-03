@@ -129,6 +129,24 @@ function handleKeydown(e: KeyboardEvent) {
   }
 }
 
+// 渲染 Markdown 链接为可点击的 HTML（新标签页打开）
+function renderMarkdown(text: string): string {
+  if (!text) return ''
+  // 先转义 HTML 特殊字符防止 XSS
+  let html = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+  // 转换 Markdown 链接 [text](url) 为 <a> 标签（新标签页打开）
+  html = html.replace(
+    /\[([^\]]+)\]\((\/[^)]+)\)/g,
+    '<a href="$2" class="recipe-link" target="_blank" rel="noopener">$1</a>'
+  )
+  // 转换换行为 <br>
+  html = html.replace(/\n/g, '<br>')
+  return html
+}
+
 // 返回首页
 function goBack() {
   router.push('/')
@@ -159,7 +177,13 @@ function goBack() {
             {{ msg.role === 'user' ? '👤' : '🍽️' }}
           </div>
           <div class="message-content">
-            <pre :class="{ streaming: msg.isStreaming }">{{ msg.content || (msg.isStreaming ? '...' : '') }}</pre>
+            <div
+              v-if="msg.role === 'assistant'"
+              class="markdown-body"
+              :class="{ streaming: msg.isStreaming }"
+              v-html="renderMarkdown(msg.content)"
+            ></div>
+            <pre v-else :class="{ streaming: msg.isStreaming }">{{ msg.content || (msg.isStreaming ? '...' : '') }}</pre>
           </div>
         </div>
       </div>
@@ -306,6 +330,38 @@ function goBack() {
 
 .message-content pre.streaming {
   animation: pulse 1s infinite;
+}
+
+.message-content .markdown-body {
+  margin: 0;
+  padding: 0.8rem 1rem;
+  border-radius: 12px;
+  background: #f5f5f5;
+  color: #333;
+  font-size: 0.95rem;
+  line-height: 1.7;
+  word-wrap: break-word;
+  overflow-x: auto;
+}
+
+.message-content .markdown-body.streaming {
+  animation: pulse 1s infinite;
+}
+
+.recipe-link {
+  color: #2e7d32;
+  font-weight: 600;
+  text-decoration: none;
+  border-bottom: 2px solid #81c784;
+  transition: all 0.2s ease;
+  padding: 0 2px;
+}
+
+.recipe-link:hover {
+  color: #1b5e20;
+  border-bottom-color: #2e7d32;
+  background: #e8f5e9;
+  border-radius: 3px;
 }
 
 @keyframes pulse {

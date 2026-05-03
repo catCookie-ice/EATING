@@ -53,4 +53,9 @@ class Settings(BaseSettings):
     DEEPSEEK_API_KEY: Optional[str] = None
     DEEPSEEK_MODEL: str = "deepseek-chat"
 
+    # Redis 配置
+    REDIS_URL: str = "redis://localhost:6379/0"
+    REDIS_CACHE_TTL_RECIPES: int = 300  # 食谱列表缓存时间（秒）
+    REDIS_CACHE_TTL_INGREDIENTS: int = 600  # 食材列表缓存时间（秒）
+
 settings = Settings()

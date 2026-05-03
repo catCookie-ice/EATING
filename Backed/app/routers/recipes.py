@@ -7,16 +7,21 @@ from datetime import datetime, timedelta
 import copy
 
 from app.database import get_db
+from app.config import settings
 from app.models.recipe import Recipe
 from app.models.admin import Admin
 from app.models.person import Person
 from app.models.user import User
 from app.models.ingredient import Ingredient
-from app.schemas.recipe import RecipeCreate, RecipeUpdate, RecipeResponse, RecipeStatus
+from app.schemas.recipe import RecipeCreate, RecipeUpdate, RecipeResponse, PaginatedRecipeResponse, RecipeStatus
+from app.schemas.user import TastePreference
 from app.dependencies import get_current_admin, get_current_user, require_admin
 from app.utils.text_filter import TextFilter
 from app.utils.jwt import decode_access_token
 from app.utils.storage import get_storage
+from app.utils.recipe_enrich import enrich_recipe_from_materials
+from app.utils.redis_cache import make_cache_key, get_cache, set_cache, delete_cache_pattern
+from app.routers.auth import validate_taste
 
 router = APIRouter(prefix="/recipes", tags=["食谱"])
 
@@ -31,6 +36,54 @@ def delete_old_file(old_url: str):
     except Exception:
         # 删除失败静默处理，不影响主流程
         pass
+
+
+def auto_enrich_recipe(recipe: Recipe, db: Session, allow_ai: bool = True):
+    """根据食谱的用料自动补充营养成分
+
+    计算碳水/蛋白/脂肪（500g 食谱折算），
+    收集维生素、矿物质、过敏源。
+
+    Args:
+        recipe: 已保存的食谱对象
+        db: 数据库会话
+        allow_ai: 是否允许AI自动创建不存在的食材（仅管理员可用）
+    """
+    if not recipe.materials:
+        return
+
+    enriched = enrich_recipe_from_materials(
+        recipe.materials,
+        db,
+        existing_allergens=recipe.allergens,
+        allow_ai=allow_ai,
+    )
+
+    has_change = False
+    # 定量：碳水/蛋白/脂肪
+    if enriched["carbohydrate"] > 0:
+        recipe.carbohydrate = enriched["carbohydrate"]
+        has_change = True
+    if enriched["protein"] > 0:
+        recipe.protein = enriched["protein"]
+        has_change = True
+    if enriched["fat"] > 0:
+        recipe.fat = enriched["fat"]
+        has_change = True
+
+    # 定性：维生素/矿物质/过敏源
+    if enriched["vitamins"] and enriched["vitamins"] != (recipe.vitamins or []):
+        recipe.vitamins = enriched["vitamins"]
+        has_change = True
+    if enriched["minerals"] and enriched["minerals"] != (recipe.minerals or []):
+        recipe.minerals = enriched["minerals"]
+        has_change = True
+    if enriched["allergens"] and enriched["allergens"] != (recipe.allergens or []):
+        recipe.allergens = enriched["allergens"]
+        has_change = True
+
+    if has_change:
+        db.flush()
 
 
 # 新建一个独立的路由，专门用于搜索
@@ -106,6 +159,7 @@ def enrich_recipe_with_source_avatar(recipe: Recipe, db: Session) -> dict:
         "is_halal": recipe.is_halal,
         "allergens": recipe.allergens,
         "method": recipe.method,
+        "taste": recipe.taste,
         "pictures_url": recipe.pictures_url,
         "is_delete": recipe.is_delete,
         "source": recipe.source,
@@ -143,17 +197,38 @@ def enrich_recipe_with_source_avatar(recipe: Recipe, db: Session) -> dict:
     return recipe_dict
 
 
-@router.get("/", response_model=List[RecipeResponse])
+@router.get("/", response_model=PaginatedRecipeResponse)
 def list_recipes(
-    skip: int = 0,
-    limit: int = 100,
+    page: int = 1,
+    page_size: int = 20,
     cuisine: str = None,
     is_halal: bool = None,
     db: Session = Depends(get_db)
 ):
-    """获取公开的食谱列表"""
+    """获取公开的食谱列表（分页 + Redis 缓存）"""
     from app.schemas.recipe import RecipeStatus
 
+    # 参数校验
+    if page < 1:
+        page = 1
+    if page_size < 1:
+        page_size = 20
+    if page_size > 100:
+        page_size = 100
+
+    # 尝试从缓存读取
+    cache_key = make_cache_key(
+        "recipes:list",
+        page=page,
+        page_size=page_size,
+        cuisine=cuisine,
+        is_halal=is_halal,
+    )
+    cached = get_cache(cache_key)
+    if cached is not None:
+        return cached
+
+    # 查询数据库
     query = db.query(Recipe).filter(
         Recipe.is_delete == False,
         Recipe.status == RecipeStatus.PUBLIC  # 只显示公开的，排除封禁的
@@ -164,13 +239,24 @@ def list_recipes(
     if is_halal is not None:
         query = query.filter(Recipe.is_halal == is_halal)
 
-    recipes = query.offset(skip).limit(limit).all()
+    total = query.count()
+    recipes = query.offset((page - 1) * page_size).limit(page_size).all()
 
     # 为每个食谱添加来源头像
-    result = []
+    items = []
     for recipe in recipes:
         recipe_dict = enrich_recipe_with_source_avatar(recipe, db)
-        result.append(recipe_dict)
+        items.append(recipe_dict)
+
+    result = {
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "items": items,
+    }
+
+    # 写入缓存
+    set_cache(cache_key, result, ttl=settings.REDIS_CACHE_TTL_RECIPES)
 
     return result
 
@@ -456,6 +542,14 @@ def create_recipe(
     # 过滤违禁词
     filtered_data = filter_recipe_fields(recipe.model_dump())
 
+    # 处理口味偏好转换为字典
+    if "taste" in filtered_data and filtered_data["taste"]:
+        taste_obj = TastePreference(**filtered_data["taste"])
+        processed_taste, _ = validate_taste(taste_obj)
+        filtered_data["taste"] = processed_taste.model_dump()
+    elif "taste" in filtered_data and filtered_data["taste"] is None:
+        filtered_data.pop("taste")
+
     if is_admin:
         # 管理员创建的是系统食谱
         db_recipe = Recipe(**filtered_data)
@@ -481,6 +575,9 @@ def create_recipe(
     db.add(db_recipe)
     db.commit()
     db.refresh(db_recipe)
+    auto_enrich_recipe(db_recipe, db, allow_ai=is_admin)
+    # 创建食谱后使列表缓存失效
+    delete_cache_pattern("recipes:list:*")
     return db_recipe
 
 
@@ -501,12 +598,24 @@ def create_my_recipe(
         filtered_data["source"] = TextFilter.filter_text(user.nickname)  # 过滤用户昵称
     else:
         filtered_data["source"] = "用户"
+
+    # 处理口味偏好转换为字典
+    if "taste" in filtered_data and filtered_data["taste"]:
+        taste_obj = TastePreference(**filtered_data["taste"])
+        processed_taste, _ = validate_taste(taste_obj)
+        filtered_data["taste"] = processed_taste.model_dump()
+    elif "taste" in filtered_data and filtered_data["taste"] is None:
+        filtered_data.pop("taste")
+
     db_recipe = Recipe(**filtered_data)
     db_recipe.status = RecipeStatus.PRIVATE  # 默认私密
     db_recipe.creator_account = person.account
     db.add(db_recipe)
     db.commit()
     db.refresh(db_recipe)
+    auto_enrich_recipe(db_recipe, db, allow_ai=False)
+    # 创建食谱后使列表缓存失效
+    delete_cache_pattern("recipes:list:*")
     return db_recipe
 
 
@@ -538,12 +647,24 @@ def share_recipe(
 
     filtered_data = filter_recipe_fields(recipe.model_dump())
     filtered_data["source"] = TextFilter.filter_text(user.nickname)  # 过滤用户昵称
+
+    # 处理口味偏好转换为字典
+    if "taste" in filtered_data and filtered_data["taste"]:
+        taste_obj = TastePreference(**filtered_data["taste"])
+        processed_taste, _ = validate_taste(taste_obj)
+        filtered_data["taste"] = processed_taste.model_dump()
+    elif "taste" in filtered_data and filtered_data["taste"] is None:
+        filtered_data.pop("taste")
+
     db_recipe = Recipe(**filtered_data)
     db_recipe.status = RecipeStatus.PENDING  # 默认待审核
     db_recipe.creator_account = person.account
     db.add(db_recipe)
     db.commit()
     db.refresh(db_recipe)
+    auto_enrich_recipe(db_recipe, db, allow_ai=False)
+    # 分享食谱后使列表缓存失效
+    delete_cache_pattern("recipes:list:*")
     return db_recipe
 
 
@@ -583,6 +704,14 @@ def update_my_recipe(
     update_data.pop('creator_account', None)
     update_data.pop('status', None)  # 用户不能修改状态
 
+    # 处理口味偏好转换为字典
+    if "taste" in update_data and update_data["taste"]:
+        taste_obj = TastePreference(**update_data["taste"])
+        processed_taste, _ = validate_taste(taste_obj)
+        update_data["taste"] = processed_taste.model_dump()
+    elif "taste" in update_data and update_data["taste"] is None:
+        update_data.pop("taste")
+
     # 删除旧的展示图片
     if "pictures_url" in update_data and update_data["pictures_url"]:
         old_pictures = db_recipe.pictures_url or []
@@ -600,6 +729,10 @@ def update_my_recipe(
 
     db.commit()
     db.refresh(db_recipe)
+    if "materials" in update_data:
+        auto_enrich_recipe(db_recipe, db, allow_ai=False)
+    # 更新食谱后使列表缓存失效
+    delete_cache_pattern("recipes:list:*")
     return db_recipe
 
 
@@ -668,6 +801,8 @@ def share_my_recipe(
     recipe.status = RecipeStatus.PENDING
     db.commit()
     db.refresh(recipe)
+    # 提交审核后使列表缓存失效
+    delete_cache_pattern("recipes:list:*")
     return recipe
 
 
@@ -757,6 +892,8 @@ def set_recipe_visibility(
 
     db.commit()
     db.refresh(recipe)
+    # 修改可见性后使列表缓存失效
+    delete_cache_pattern("recipes:list:*")
     return recipe
 
 
@@ -802,6 +939,8 @@ def unban_recipe(
     recipe.status = RecipeStatus.APPEALING
     db.commit()
     db.refresh(recipe)
+    # 申请解封后使列表缓存失效
+    delete_cache_pattern("recipes:list:*")
     return recipe
 
 
@@ -839,6 +978,8 @@ def approve_recipe(
     recipe.status = RecipeStatus.PUBLIC
     db.commit()
     db.refresh(recipe)
+    # 审核通过后使列表缓存失效
+    delete_cache_pattern("recipes:list:*")
     return recipe
 
 
@@ -876,6 +1017,8 @@ def approve_unban_recipe(
     recipe.status = RecipeStatus.PUBLIC
     db.commit()
     db.refresh(recipe)
+    # 审核通过解封后使列表缓存失效
+    delete_cache_pattern("recipes:list:*")
     return recipe
 
 
@@ -914,6 +1057,8 @@ def reject_unban_recipe(
     recipe.status = RecipeStatus.BANNED
     db.commit()
     db.refresh(recipe)
+    # 拒绝解封后使列表缓存失效
+    delete_cache_pattern("recipes:list:*")
     return recipe
 
 
@@ -951,6 +1096,8 @@ def reject_recipe(
     recipe.status = RecipeStatus.PRIVATE
     db.commit()
     db.refresh(recipe)
+    # 拒绝审核后使列表缓存失效
+    delete_cache_pattern("recipes:list:*")
     return recipe
 
 
@@ -1003,6 +1150,14 @@ def update_recipe(
     if not is_admin:
         update_data.pop('status', None)
 
+    # 处理口味偏好转换为字典
+    if "taste" in update_data and update_data["taste"]:
+        taste_obj = TastePreference(**update_data["taste"])
+        processed_taste, _ = validate_taste(taste_obj)
+        update_data["taste"] = processed_taste.model_dump()
+    elif "taste" in update_data and update_data["taste"] is None:
+        update_data.pop("taste")
+
     # 过滤违禁词
     update_data = filter_recipe_fields(update_data)
 
@@ -1011,6 +1166,10 @@ def update_recipe(
 
     db.commit()
     db.refresh(db_recipe)
+    if "materials" in update_data:
+        auto_enrich_recipe(db_recipe, db, allow_ai=is_admin)
+    # 更新食谱后使列表缓存失效
+    delete_cache_pattern("recipes:list:*")
     return db_recipe
 
 
@@ -1056,6 +1215,8 @@ def delete_recipe(
 
     db_recipe.is_delete = True
     db.commit()
+    # 删除食谱后使列表缓存失效
+    delete_cache_pattern("recipes:list:*")
 
     return {"message": "食谱已删除"}
 
@@ -1091,5 +1252,7 @@ def delete_my_recipe(
 
     db_recipe.is_delete = True
     db.commit()
+    # 删除食谱后使列表缓存失效
+    delete_cache_pattern("recipes:list:*")
 
     return {"message": "食谱已删除"}

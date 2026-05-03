@@ -37,9 +37,32 @@ const recipeForm = ref({
   allergens: [] as string[],
   vitamins: [] as string[],
   minerals: [] as string[],
+  taste: { sour: 0.2, sweet: 0.2, bitter: 0.2, spicy: 0.2, salty: 0.2 },
   pictures_url: [] as string[]
 })
 let savedRecipeForm = JSON.parse(JSON.stringify(recipeForm.value))
+const defaultTaste = { sour: 0.2, sweet: 0.2, bitter: 0.2, spicy: 0.2, salty: 0.2 }
+const tasteDimensions = [
+  { key: 'sour', label: '酸' },
+  { key: 'sweet', label: '甜' },
+  { key: 'bitter', label: '苦' },
+  { key: 'spicy', label: '辣' },
+  { key: 'salty', label: '咸' },
+]
+
+function updateTaste(key: string, value: string) {
+  const numVal = parseFloat(value)
+  if (isNaN(numVal)) return
+  (recipeForm.value.taste as any)[key] = numVal
+  // 自动归一化，使总和为1
+  const taste = recipeForm.value.taste as any
+  const total = Object.keys(taste).reduce((sum: number, k: string) => sum + (Number(taste[k]) || 0), 0)
+  if (total > 0 && Math.abs(total - 1) > 0.001) {
+    for (const k of Object.keys(taste)) {
+      taste[k] = Math.round(((taste[k] / total) + Number.EPSILON) * 100) / 100
+    }
+  }
+}
 
 // 用于标记是否意外关闭（点击弹窗外部）
 let isAccidentalClose = false
@@ -218,6 +241,7 @@ async function applyClipboardData() {
       allergens: d.allergens || [],
       vitamins: d.vitamins || [],
       minerals: d.minerals || [],
+      taste: d.taste || { ...defaultTaste },
       pictures_url: []
     }
     showRecipeForm.value = true
@@ -331,6 +355,7 @@ function openMyRecipeCreate(recipe?: any, restoreDraft: boolean = true) {
       allergens: recipe.allergens || [],
       vitamins: recipe.vitamins || [],
       minerals: recipe.minerals || [],
+      taste: recipe.taste || { ...defaultTaste },
       pictures_url: recipe.pictures_url || []
     }
   } else {
@@ -353,6 +378,7 @@ function openMyRecipeCreate(recipe?: any, restoreDraft: boolean = true) {
         allergens: [],
         vitamins: [],
         minerals: [],
+        taste: { ...defaultTaste },
         pictures_url: []
       }
       localStorage.removeItem('recipe_draft')
@@ -371,7 +397,8 @@ function openMyRecipeCreate(recipe?: any, restoreDraft: boolean = true) {
         is_halal: false,
         allergens: [],
         vitamins: [],
-        minerals: []
+        minerals: [],
+        taste: { ...defaultTaste }
       }
     }
   }
@@ -542,6 +569,7 @@ async function saveMyRecipe() {
       allergens: recipeForm.value.allergens,
       vitamins: recipeForm.value.vitamins,
       minerals: recipeForm.value.minerals,
+      taste: recipeForm.value.taste,
       pictures_url: recipeForm.value.pictures_url
     }
 
@@ -571,6 +599,7 @@ async function saveMyRecipe() {
       allergens: [],
       vitamins: [],
       minerals: [],
+      taste: { ...defaultTaste },
       pictures_url: []
     }
     localStorage.removeItem('recipe_draft')
@@ -611,6 +640,7 @@ function clearRecipeDraft() {
     allergens: [],
     vitamins: [],
     minerals: [],
+    taste: { ...defaultTaste },
     pictures_url: []
   }
   localStorage.removeItem('recipe_draft')
@@ -872,6 +902,17 @@ async function deleteMyRecipe(recipeId: number) {
 
         <div class="form-group">
           <label class="checkbox-label"><input v-model="recipeForm.is_halal" type="checkbox" /> 清真</label>
+        </div>
+
+        <div class="form-group">
+          <label>口味占比</label>
+          <div class="taste-sliders">
+            <div class="taste-row" v-for="dim in tasteDimensions" :key="dim.key">
+              <span class="taste-label">{{ dim.label }}</span>
+              <input type="range" min="0" max="1" step="0.05" :value="recipeForm.taste[dim.key]" @input="updateTaste(dim.key, ($event.target as HTMLInputElement).value)" />
+              <span class="taste-value">{{ (recipeForm.taste[dim.key] * 100).toFixed(0) }}%</span>
+            </div>
+          </div>
         </div>
 
         <div class="form-group">
@@ -1242,6 +1283,54 @@ async function deleteMyRecipe(recipeId: number) {
 
 .checkbox-label input {
   width: auto !important;
+}
+
+.taste-sliders {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.taste-row {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.taste-label {
+  min-width: 2rem;
+  font-size: 0.9rem;
+  color: #555;
+  text-align: center;
+}
+
+.taste-row input[type="range"] {
+  flex: 1;
+  height: 6px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: #e0e0e0;
+  border-radius: 3px;
+  outline: none;
+}
+
+.taste-row input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #4caf50;
+  cursor: pointer;
+  border: 2px solid white;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+
+.taste-value {
+  min-width: 3rem;
+  font-size: 0.85rem;
+  color: #666;
+  text-align: right;
 }
 
 .form-group input,

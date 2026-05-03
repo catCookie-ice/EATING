@@ -13,6 +13,7 @@ class IngredientBase(BaseModel):
     category: str = Field(..., description="食材种类")
     is_halal: bool = Field(False, description="是否清真")
     is_allergen: bool = Field(False, description="是否易过敏")
+    is_ai: bool = Field(False, description="是否由AI自动添加")
     picture_url: Optional[str] = Field(None, description="展示图片地址")
 
     @field_validator('category', mode='before')
@@ -55,3 +56,11 @@ class IngredientResponse(IngredientBase):
     picture_url: Optional[str] = Field(None, description="展示图片地址")
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class PaginatedIngredientResponse(BaseModel):
+    """分页食材列表响应"""
+    total: int = Field(..., description="总数")
+    page: int = Field(..., description="当前页码")
+    page_size: int = Field(..., description="每页数量")
+    items: List[IngredientResponse] = Field(..., description="食材列表")

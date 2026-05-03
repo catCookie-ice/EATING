@@ -4,17 +4,18 @@ DeepSeek AI 工具模块
 提供 DeepSeek API 的调用功能，使用 OpenAI 兼容接口
 """
 
-import os
 from typing import Any, Literal
 
 from openai import OpenAI
 from pydantic import BaseModel
 
+from app.config import settings
+
 
 
 # DeepSeek API 配置
-DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
-DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+DEEPSEEK_API_KEY = settings.DEEPSEEK_API_KEY or ""
+DEEPSEEK_MODEL = settings.DEEPSEEK_MODEL or "deepseek-chat"
 
 # 初始化客户端
 client = OpenAI(

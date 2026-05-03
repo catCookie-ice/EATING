@@ -1,11 +1,15 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
 
 const router = useRouter()
 const recipes = ref<any[]>([])
 const loading = ref(false)
+
+const page = ref(1)
+const pageSize = ref(20)
+const total = ref(0)
 
 const searchQuery = ref('')
 const selectedCuisine = ref('')
@@ -16,24 +20,57 @@ const cuisines = [
         "东北菜", "西北菜","家常菜","西餐", "日料", "韩餐", "东南亚菜", "家常菜","其他"
     ]
 
-onMounted(async () => {
+const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
+
+async function fetchRecipes() {
   loading.value = true
   try {
-    const res = await axios.get('/api/recipes/')
-    recipes.value = res.data
+    const params: Record<string, any> = { page: page.value, page_size: pageSize.value }
+    if (selectedCuisine.value) params.cuisine = selectedCuisine.value
+    if (selectedHalal.value !== null) params.is_halal = selectedHalal.value
+
+    const res = await axios.get('/api/recipes/', { params })
+    recipes.value = res.data.items
+    total.value = res.data.total
   } finally {
     loading.value = false
   }
+}
+
+// 菜系/清真筛选变更时，重置到第一页并重新请求
+watch([selectedCuisine, selectedHalal], () => {
+  page.value = 1
+  fetchRecipes()
 })
 
+onMounted(fetchRecipes)
+
+// 客户端搜索过滤（在当前页数据中搜索）
 const filteredRecipes = computed(() => {
-  return recipes.value.filter(r => {
-    if (searchQuery.value && !r.name.includes(searchQuery.value)) return false
-    if (selectedCuisine.value && r.cuisine !== selectedCuisine.value) return false
-    if (selectedHalal.value !== null && r.is_halal !== selectedHalal.value) return false
-    return true
-  })
+  if (!searchQuery.value) return recipes.value
+  return recipes.value.filter(r => r.name.includes(searchQuery.value))
 })
+
+function prevPage() {
+  if (page.value > 1) {
+    page.value--
+    fetchRecipes()
+  }
+}
+
+function nextPage() {
+  if (page.value < totalPages.value) {
+    page.value++
+    fetchRecipes()
+  }
+}
+
+function goToPage(p: number) {
+  if (p >= 1 && p <= totalPages.value) {
+    page.value = p
+    fetchRecipes()
+  }
+}
 
 function goToDetail(id: number) {
   window.open(`/recipes/${id}`, '_blank')
@@ -117,9 +154,23 @@ function getFirstImage(recipe: any): string | null {
       </div>
     </div>
 
-    <div v-if="filteredRecipes.length === 0" class="empty-state">
+    <div v-if="filteredRecipes.length === 0 && !loading" class="empty-state">
       <span class="empty-icon">🔍</span>
       <p>暂无食谱</p>
+    </div>
+
+    <!-- 分页 -->
+    <div v-if="totalPages > 1" class="pagination">
+      <button class="page-btn" :disabled="page <= 1" @click="prevPage">上一页</button>
+      <button
+        v-for="p in totalPages"
+        :key="p"
+        class="page-btn"
+        :class="{ active: p === page }"
+        @click="goToPage(p)"
+      >{{ p }}</button>
+      <button class="page-btn" :disabled="page >= totalPages" @click="nextPage">下一页</button>
+      <span class="page-info">共 {{ total }} 条</span>
     </div>
   </div>
 </template>
@@ -310,5 +361,47 @@ function getFirstImage(recipe: any): string | null {
   .recipe-grid {
     grid-template-columns: repeat(2, 1fr);
   }
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-top: 2rem;
+  flex-wrap: wrap;
+}
+
+.page-btn {
+  padding: 0.5rem 1rem;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  background: white;
+  color: #2e7d32;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: all 0.2s ease;
+}
+
+.page-btn:hover:not(:disabled):not(.active) {
+  border-color: #4caf50;
+  background: #e8f5e9;
+}
+
+.page-btn.active {
+  background: linear-gradient(135deg, #43a047, #2e7d32);
+  color: white;
+  border-color: #2e7d32;
+}
+
+.page-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.page-info {
+  margin-left: 0.5rem;
+  color: #78909c;
+  font-size: 0.85rem;
 }
 </style>

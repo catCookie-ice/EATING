@@ -75,9 +75,32 @@ const recipeForm = ref({
   allergens: [] as string[],
   vitamins: [] as string[],
   minerals: [] as string[],
+  taste: { sour: 0.2, sweet: 0.2, bitter: 0.2, spicy: 0.2, salty: 0.2 },
   pictures_url: [] as string[]
 })
 let savedRecipeForm = JSON.parse(JSON.stringify(recipeForm.value))
+const defaultTaste = { sour: 0.2, sweet: 0.2, bitter: 0.2, spicy: 0.2, salty: 0.2 }
+const tasteDimensions = [
+  { key: 'sour', label: '酸' },
+  { key: 'sweet', label: '甜' },
+  { key: 'bitter', label: '苦' },
+  { key: 'spicy', label: '辣' },
+  { key: 'salty', label: '咸' },
+]
+
+function updateTaste(key: string, value: string) {
+  const numVal = parseFloat(value)
+  if (isNaN(numVal)) return
+  ;(recipeForm.value.taste as any)[key] = numVal
+  // 自动归一化，使总和为1
+  const taste = recipeForm.value.taste as any
+  const total = Object.keys(taste).reduce((sum: number, k: string) => sum + (Number(taste[k]) || 0), 0)
+  if (total > 0 && Math.abs(total - 1) > 0.001) {
+    for (const k of Object.keys(taste)) {
+      taste[k] = Math.round(((taste[k] / total) + Number.EPSILON) * 100) / 100
+    }
+  }
+}
 
 // 封面上传相关
 const recipeCoverPreview = ref('')
@@ -125,6 +148,12 @@ let savedIngredientForm = JSON.parse(JSON.stringify(ingredientForm.value))
 const ingredientCoverPreview = ref('')
 const ingredientCoverFile = ref<File | null>(null)
 const uploadingIngredientCover = ref(false)
+
+// 防抖 & 进度条
+const isSubmitting = ref(false)
+const showProgress = ref(false)
+const progressPercent = ref(0)
+const progressMessage = ref('')
 
 // 用于标记是否意外关闭（点击弹窗外部）
 let isAccidentalClose: boolean = false
@@ -351,7 +380,7 @@ async function loadIngredients() {
     const res = await axios.get('/api/ingredients/', {
       headers: { Authorization: `Bearer ${token}` }
     })
-    ingredients.value = res.data
+    ingredients.value = res.data.items
     ingredientsLoaded.value = true
   } catch (e: any) {
     console.error('加载食材失败', e)
@@ -638,7 +667,7 @@ async function saveIngredient() {
 
     // 刷新列表
     const res = await axios.get('/api/ingredients/', { headers: { Authorization: `Bearer ${authStore.token}` } })
-    ingredients.value = res.data
+    ingredients.value = res.data.items
   } catch (e: any) {
     alert(e.response?.data?.detail || '保存失败')
   }
@@ -701,6 +730,7 @@ function openRecipeCreate(recipe?: any, restoreDraft: boolean = true) {
       allergens: recipe.allergens || [],
       vitamins: recipe.vitamins || [],
       minerals: recipe.minerals || [],
+      taste: recipe.taste || { ...defaultTaste },
       pictures_url: recipe.pictures_url || []
     }
   } else {
@@ -723,6 +753,7 @@ function openRecipeCreate(recipe?: any, restoreDraft: boolean = true) {
         allergens: [],
         vitamins: [],
         minerals: [],
+        taste: { ...defaultTaste },
         pictures_url: []
       }
       localStorage.removeItem('recipe_draft')
@@ -742,6 +773,7 @@ function openRecipeCreate(recipe?: any, restoreDraft: boolean = true) {
         allergens: [],
         vitamins: [],
         minerals: [],
+        taste: { ...defaultTaste },
         pictures_url: []
       }
     }
@@ -917,7 +949,40 @@ function removeTag(type: 'allergens' | 'vitamins' | 'minerals', tag: string) {
   }
 }
 
+// 进度模拟（在单次HTTP请求中模拟多个阶段）
+function startProgressSimulation(): number {
+  showProgress.value = true
+  progressPercent.value = 0
+  progressMessage.value = '正在创建食谱...'
+
+  const stages = [
+    { at: 15, msg: '正在保存食谱...' },
+    { at: 35, msg: '正在分析食材...' },
+    { at: 55, msg: '正在通过AI补充食材信息...' },
+    { at: 80, msg: '正在计算营养成分...' },
+  ]
+
+  let stageIdx = 0
+  return window.setInterval(() => {
+    // 到达阶段阈值时更新消息
+    if (stageIdx < stages.length && progressPercent.value >= stages[stageIdx].at) {
+      progressMessage.value = stages[stageIdx].msg
+      stageIdx++
+    }
+    // 缓慢逼近 95%，不达到 100%（等请求真正完成才跳到 100）
+    if (progressPercent.value < 95) {
+      const step = Math.max(0.3, (95 - progressPercent.value) / 30)
+      progressPercent.value = Math.min(95, progressPercent.value + step)
+    }
+  }, 400)
+}
+
 async function saveRecipe() {
+  // 防抖：防止重复提交
+  if (isSubmitting.value) return
+  isSubmitting.value = true
+
+  let progressTimer: number | null = null
   try {
     // 解析材料
     const materials: any[] = []
@@ -944,7 +1009,6 @@ async function saveRecipe() {
     for (let i = 0; i < recipeForm.value.steps.length; i++) {
       const s = recipeForm.value.steps[i]
       if (s.description?.trim()) {
-        // step 可能是数字或字符串，需要转换为字符串
         const stepKey = typeof s.step === 'number' ? `第${s.step}步` : String(s.step).trim()
         steps.push({
           step: stepKey,
@@ -956,18 +1020,14 @@ async function saveRecipe() {
     // 营养计算：根据食材自动计算
     let carb = 0, protein = 0, fat = 0
     if (autoCalculateNutrition.value) {
-      // 遍历食谱中的食材，从食材库获取营养数据并根据用量计算
       for (const m of materials) {
         const materialName = Object.keys(m)[0]
         const amountStr = Object.values(m)[0] as string
-        // 尝试提取数字用量（单位：g）
-        const amount = parseFloat(amountStr.replace(/[^0-9.]/g, '')) || 100 // 默认100g
+        const amount = parseFloat(amountStr.replace(/[^0-9.]/g, '')) || 100
 
-        // 查找食材
         for (const ing of ingredients.value) {
           const ingNames = ing.name || []
           if (Array.isArray(ingNames) && ingNames.includes(materialName)) {
-            // 按比例计算（以500g为基准）
             const ratio = amount / 500
             carb += (ing.carbohydrate || 0) * ratio
             protein += (ing.protein || 0) * ratio
@@ -993,21 +1053,27 @@ async function saveRecipe() {
       allergens: recipeForm.value.allergens,
       vitamins: recipeForm.value.vitamins,
       minerals: recipeForm.value.minerals,
+      taste: recipeForm.value.taste,
       status: 'public',
       pictures_url: recipeForm.value.pictures_url
     }
 
     const token = authStore.token
 
+    // 开始进度模拟（在实际请求发出前）
+    progressTimer = startProgressSimulation()
+
     if (editingRecipeId.value) {
-      // 更新模式
       await axios.put(`/api/recipes/${editingRecipeId.value}`, data, { headers: { Authorization: `Bearer ${token}` } })
       alert('食谱已更新')
     } else {
-      // 创建新食谱
       await axios.post('/api/recipes/', data, { headers: { Authorization: `Bearer ${token}` } })
       alert('食谱已创建')
     }
+
+    // 完成
+    progressPercent.value = 100
+    progressMessage.value = '完成'
 
     // 清空草稿（只在创建后清空）
     savedRecipeForm = {
@@ -1035,12 +1101,17 @@ async function saveRecipe() {
     const res = await axios.get('/api/recipes/all', { headers: { Authorization: `Bearer ${authStore.token}` } })
     allRecipes.value = res.data
   } catch (e: any) {
-    // 检查是否是网络错误
+    progressPercent.value = 0
+    progressMessage.value = ''
     if (!e.response) {
       alert('网络错误: ' + e.message)
     } else {
       alert(e.response?.data?.detail || '保存失败')
     }
+  } finally {
+    isSubmitting.value = false
+    if (progressTimer !== null) clearInterval(progressTimer)
+    setTimeout(() => { showProgress.value = false }, 800)
   }
 }
 
@@ -1686,6 +1757,17 @@ async function getalladmins() {
           </label>
         </div>
 
+        <div class="form-group">
+          <label>口味占比</label>
+          <div class="taste-sliders">
+            <div class="taste-row" v-for="dim in tasteDimensions" :key="dim.key">
+              <span class="taste-label">{{ dim.label }}</span>
+              <input type="range" min="0" max="1" step="0.05" :value="recipeForm.taste[dim.key]" @input="updateTaste(dim.key, ($event.target as HTMLInputElement).value)" />
+              <span class="taste-value">{{ (recipeForm.taste[dim.key] * 100).toFixed(0) }}%</span>
+            </div>
+          </div>
+        </div>
+
         <!-- 过敏食材 -->
         <div class="form-group">
           <label>过敏食材</label>
@@ -1748,7 +1830,7 @@ async function getalladmins() {
         </div>
 
         <div class="modal-actions">
-          <button class="btn-confirm" @click="async () => { await saveRecipe(); closeRecipeForm(false) }">创建</button>
+          <button class="btn-confirm" :disabled="isSubmitting" @click="async () => { await saveRecipe(); closeRecipeForm(false) }">{{ isSubmitting ? '提交中...' : '创建' }}</button>
           <button class="btn-save-draft" @click="closeRecipeForm(true)">保存草稿</button>
           <button class="btn-cancel" @click="closeRecipeForm(false)">取消</button>
         </div>
@@ -1759,6 +1841,17 @@ async function getalladmins() {
     <div v-if="isSuperAdmin" class="admin-tip">
       <p>超级管理员权限：仅可管理管理员账号</p>
       <p>食谱、食材、用户管理请使用1级管理员账号</p>
+    </div>
+  </div>
+
+  <!-- 创建/保存进度条 -->
+  <div v-if="showProgress" class="modal-overlay">
+    <div class="progress-modal">
+      <h3>{{ progressMessage }}</h3>
+      <div class="progress-bar-track">
+        <div class="progress-bar-fill" :style="{ width: progressPercent + '%' }"></div>
+      </div>
+      <p class="progress-percent">{{ Math.round(progressPercent) }}%</p>
     </div>
   </div>
 </template>
@@ -2662,5 +2755,90 @@ async function getalladmins() {
   .line-input {
     grid-template-columns: 1fr;
   }
+}
+
+.taste-sliders {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.taste-row {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.taste-label {
+  min-width: 2rem;
+  font-size: 0.9rem;
+  color: #555;
+  text-align: center;
+}
+
+.taste-row input[type="range"] {
+  flex: 1;
+  height: 6px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: #e0e0e0;
+  border-radius: 3px;
+  outline: none;
+}
+
+.taste-row input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #4caf50;
+  cursor: pointer;
+  border: 2px solid white;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+
+.taste-value {
+  min-width: 3rem;
+  font-size: 0.85rem;
+  color: #666;
+  text-align: right;
+}
+
+/* 进度条弹窗 */
+.progress-modal {
+  background: white;
+  border-radius: 16px;
+  padding: 2.5rem 3rem;
+  text-align: center;
+  min-width: 360px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+}
+
+.progress-modal h3 {
+  color: #2e7d32;
+  margin-bottom: 1.5rem;
+  font-size: 1.1rem;
+}
+
+.progress-bar-track {
+  width: 100%;
+  height: 12px;
+  background: #e8f5e9;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #4caf50, #66bb6a);
+  border-radius: 6px;
+  transition: width 0.3s ease;
+}
+
+.progress-percent {
+  margin-top: 0.8rem;
+  color: #78909c;
+  font-size: 0.9rem;
 }
 </style>

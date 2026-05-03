@@ -10,8 +10,8 @@ const auth = useAuthStore()
 const featuredRecipes = ref<any[]>([])
 
 onMounted(async () => {
-  const res = await axios.get('/api/recipes/', { params: { limit: 6 } })
-  featuredRecipes.value = res.data
+  const res = await axios.get('/api/recipes/', { params: { page: 1, page_size: 6 } })
+  featuredRecipes.value = res.data.items
 })
 
 function goToRecipe(id: number) {

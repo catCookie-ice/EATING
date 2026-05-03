@@ -1,33 +1,49 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import axios from 'axios'
 
 const ingredients = ref<any[]>([])
 const loading = ref(false)
+
+const page = ref(1)
+const pageSize = ref(20)
+const total = ref(0)
 
 const searchQuery = ref('')
 const selectedCategory = ref('')
 
 const categories = ["肉", "蛋", "蔬菜", "水果","奶制品","谷物",'豆类', '坚果',"海鲜","其他"]
 
-onMounted(async () => {
+const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
+
+async function fetchIngredients() {
   loading.value = true
   try {
-    const res = await axios.get('/api/ingredients/')
-    ingredients.value = res.data
+    const params: Record<string, any> = { page: page.value, page_size: pageSize.value }
+    if (selectedCategory.value) params.category = selectedCategory.value
+
+    const res = await axios.get('/api/ingredients/', { params })
+    ingredients.value = res.data.items
+    total.value = res.data.total
   } finally {
     loading.value = false
   }
+}
+
+// 分类筛选变更时，重置到第一页并重新请求
+watch(selectedCategory, () => {
+  page.value = 1
+  fetchIngredients()
 })
 
+onMounted(fetchIngredients)
+
+// 客户端搜索过滤（在当前页数据中搜索名称）
 const filteredIngredients = computed(() => {
+  if (!searchQuery.value) return ingredients.value
   return ingredients.value.filter(i => {
-    if (searchQuery.value) {
-      const names = Array.isArray(i.name) ? i.name : [i.name]
-      if (!names.some((n: string) => n.includes(searchQuery.value))) return false
-    }
-    if (selectedCategory.value && i.category !== selectedCategory.value) return false
-    return true
+    const names = Array.isArray(i.name) ? i.name : [i.name]
+    return names.some((n: string) => n.includes(searchQuery.value))
   })
 })
 
@@ -49,6 +65,27 @@ function getFirstImage(item: any): string | null {
     return item.picture_url
   }
   return null
+}
+
+function prevPage() {
+  if (page.value > 1) {
+    page.value--
+    fetchIngredients()
+  }
+}
+
+function nextPage() {
+  if (page.value < totalPages.value) {
+    page.value++
+    fetchIngredients()
+  }
+}
+
+function goToPage(p: number) {
+  if (p >= 1 && p <= totalPages.value) {
+    page.value = p
+    fetchIngredients()
+  }
 }
 </script>
 
@@ -102,9 +139,23 @@ function getFirstImage(item: any): string | null {
       </div>
     </div>
 
-    <div v-if="filteredIngredients.length === 0" class="empty-state">
+    <div v-if="filteredIngredients.length === 0 && !loading" class="empty-state">
       <span class="empty-icon">🥬</span>
       <p>暂无食材</p>
+    </div>
+
+    <!-- 分页 -->
+    <div v-if="totalPages > 1" class="pagination">
+      <button class="page-btn" :disabled="page <= 1" @click="prevPage">上一页</button>
+      <button
+        v-for="p in totalPages"
+        :key="p"
+        class="page-btn"
+        :class="{ active: p === page }"
+        @click="goToPage(p)"
+      >{{ p }}</button>
+      <button class="page-btn" :disabled="page >= totalPages" @click="nextPage">下一页</button>
+      <span class="page-info">共 {{ total }} 条</span>
     </div>
   </div>
 </template>
@@ -255,6 +306,48 @@ function getFirstImage(item: any): string | null {
   font-size: 4rem;
   display: block;
   margin-bottom: 1rem;
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-top: 2rem;
+  flex-wrap: wrap;
+}
+
+.page-btn {
+  padding: 0.5rem 1rem;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  background: white;
+  color: #2e7d32;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: all 0.2s ease;
+}
+
+.page-btn:hover:not(:disabled):not(.active) {
+  border-color: #4caf50;
+  background: #e8f5e9;
+}
+
+.page-btn.active {
+  background: linear-gradient(135deg, #43a047, #2e7d32);
+  color: white;
+  border-color: #2e7d32;
+}
+
+.page-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.page-info {
+  margin-left: 0.5rem;
+  color: #78909c;
+  font-size: 0.85rem;
 }
 
 @media (max-width: 1024px) {
