@@ -20,11 +20,8 @@ class UserBase(BaseModel):
     account: str = Field(..., description="账户账号")
     nickname: str = Field(..., description="用户昵称")
     gender: Optional[GenderType] = Field("私密", description="性别：男/女/私密")
-    age: Optional[int] = Field(None, description="年龄")
     avatar_url: Optional[str] = Field(None, description="头像URL地址")
-    taste: Optional[TastePreference] = Field(None, description="口味偏好：酸甜苦辣咸占比")
     is_halal: bool = Field(False, description="是否清真人员")
-    allergens: Optional[List[str]] = Field(None, description="过敏源列表")
 
 
 class UserCreate(BaseModel):
@@ -47,8 +44,8 @@ class UserUpdate(BaseModel):
 
 class UserResponse(UserBase):
     id: int = Field(..., description="用户ID")
-    contact_encrypted: Optional[str] = Field(None, description="加密的联系方式")
-    contact_key: Optional[str] = Field(None, description="加密密钥(4位)")
+    # contact_encrypted: Optional[str] = Field(None, description="加密的联系方式")
+    # contact_key: Optional[str] = Field(None, description="加密密钥(4位)")
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -66,7 +63,10 @@ class UserResponseForAdmin(BaseModel):
 
 class UserResponseFull(UserBase):
     id: int = Field(..., description="用户ID")
+    age: Optional[int] = Field(None, description="年龄")
     created_at: Optional[datetime] = Field(None, description="用户创建时间")
+    taste: Optional[TastePreference] = Field(None, description="口味偏好：酸甜苦辣咸占比")
+    allergens: Optional[List[str]] = Field(None, description="过敏源列表")
     browse_history: Optional[List[Dict[str, Any]]] = Field(None, description="浏览记录 [{食谱ID, 浏览时间}], 最多50条")
     favorite_records: Optional[List[Dict[str, Any]]] = Field(None, description="收藏记录 [{食谱ID, 收藏时间}], 最多30条")
 

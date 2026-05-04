@@ -404,6 +404,16 @@ async function fetchData() {
     } catch (e: any) {
       console.log('获取管理员列表错误:', e.response?.status, e.response?.data)
     }
+    // 加载知识库列表
+    try {
+      const kbRes = await axios.get('/api/admins/knowledge-base/list', {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      kbList.value = kbRes.data.bases || []
+      kbActive.value = kbRes.data.active || null
+    } catch (e: any) {
+      console.log('获取知识库列表错误:', e.response?.status, e.response?.data)
+    }
     loading.value = false
     return
   }
@@ -1253,6 +1263,116 @@ async function getalladmins() {
     alert(e.response?.data?.detail || '获取管理员列表失败')
   }
 }
+
+// ========== 知识库管理 ==========
+const kbList = ref<any[]>([])
+const kbActive = ref<any>(null)
+const kbLoading = ref(false)
+
+async function loadKbList() {
+  kbLoading.value = true
+  try {
+    const res = await axios.get('/api/admins/knowledge-base/list', {
+      headers: { Authorization: `Bearer ${authStore.token}` }
+    })
+    kbList.value = res.data.bases || []
+    kbActive.value = res.data.active || null
+  } catch (e: any) {
+    console.error('加载知识库列表失败', e)
+    alert(e.response?.data?.detail || '加载知识库列表失败')
+  } finally {
+    kbLoading.value = false
+  }
+}
+
+const kbUploading = ref(false)
+const kbUploadError = ref('')
+
+async function uploadKb(file: File) {
+  kbUploadError.value = ''
+  const ext = file.name.split('.').pop()?.toLowerCase()
+  if (ext !== 'txt') {
+    kbUploadError.value = '仅支持 .txt 文件'
+    return
+  }
+  if (file.size > 10 * 1024 * 1024) {
+    kbUploadError.value = '文件大小不能超过 10MB'
+    return
+  }
+
+  kbUploading.value = true
+  try {
+    const formData = new FormData()
+    formData.append('file', file)
+    const res = await axios.post('/api/admins/knowledge-base/upload', formData, {
+      headers: {
+        Authorization: `Bearer ${authStore.token}`,
+        'Content-Type': 'multipart/form-data',
+      },
+    })
+    alert(`知识库「${res.data.name}」上传成功（${res.data.records_count} 条记录）`)
+    await loadKbList()
+  } catch (e: any) {
+    alert(e.response?.data?.detail || '上传失败')
+  } finally {
+    kbUploading.value = false
+  }
+}
+
+function triggerKbUpload() {
+  const input = document.createElement('input')
+  input.type = 'file'
+  input.accept = '.txt'
+  input.onchange = async () => {
+    const file = input.files?.[0]
+    if (file) await uploadKb(file)
+  }
+  input.click()
+}
+
+async function activateKb(name: string) {
+  try {
+    const res = await axios.post('/api/admins/knowledge-base/activate',
+      { name },
+      { headers: { Authorization: `Bearer ${authStore.token}` } },
+    )
+    alert(res.data.message)
+    await loadKbList()
+  } catch (e: any) {
+    alert(e.response?.data?.detail || '激活失败')
+  }
+}
+
+async function deleteKb(name: string) {
+  if (!confirm(`确定要删除知识库「${name}」吗？\n此操作不可恢复。`)) return
+  try {
+    const res = await axios.delete(`/api/admins/knowledge-base/${encodeURIComponent(name)}`, {
+      headers: { Authorization: `Bearer ${authStore.token}` },
+    })
+    alert(res.data.message)
+    await loadKbList()
+  } catch (e: any) {
+    alert(e.response?.data?.detail || '删除失败')
+  }
+}
+
+const kbRebuilding = ref(false)
+
+async function rebuildKb() {
+  if (!confirm('确定要重新构建当前知识库的向量索引吗？')) return
+  kbRebuilding.value = true
+  try {
+    const res = await axios.post('/api/admins/knowledge-base/rebuild', {}, {
+      headers: { Authorization: `Bearer ${authStore.token}` },
+    })
+    alert(res.data.message)
+    await loadKbList()
+  } catch (e: any) {
+    alert(e.response?.data?.detail || '重建失败')
+  } finally {
+    kbRebuilding.value = false
+  }
+}
 </script>
 
 <template>
@@ -1306,6 +1426,70 @@ async function getalladmins() {
             @click="deleteAdmin(admin.account)"
           >删除</button>
         </div>
+      </div>
+    </div>
+
+    <!-- 0级管理员：知识库管理 -->
+    <div v-if="isSuperAdmin" class="admin-section">
+      <div class="section-header">
+        <h2>知识库管理</h2>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn-add" :disabled="kbLoading" @click="loadKbList()" style="background: #78909c;">
+            {{ kbLoading ? '加载中...' : '刷新' }}
+          </button>
+          <button class="btn-add" :disabled="kbUploading" @click="triggerKbUpload()">
+            {{ kbUploading ? '上传中...' : '+ 上传知识库' }}
+          </button>
+        </div>
+      </div>
+
+      <!-- 当前激活的知识库 -->
+      <div v-if="kbActive" class="kb-active-info">
+        <span class="kb-active-label">当前激活：</span>
+        <span class="kb-active-name">{{ kbActive.name }}</span>
+        <span class="kb-active-count">{{ kbActive.records_count || '?' }} 条记录</span>
+      </div>
+
+      <!-- 上传错误提示 -->
+      <p v-if="kbUploadError" class="error">{{ kbUploadError }}</p>
+
+      <!-- 知识库列表 -->
+      <div v-if="kbLoading" class="empty">加载中...</div>
+      <div v-else-if="kbList.length === 0" class="empty">暂无知识库</div>
+      <div v-else class="admin-list">
+        <div v-for="kb in kbList" :key="kb.name" class="kb-item">
+          <div class="kb-info">
+            <span class="kb-name">{{ kb.name }}</span>
+            <span v-if="kb.is_default" class="kb-tag tag-default">默认</span>
+            <span v-if="kb.is_active" class="kb-tag tag-active">当前</span>
+            <span v-else class="kb-tag tag-inactive">未激活</span>
+            <span class="kb-meta">{{ kb.is_default ? '内置知识库' : '上传的知识库' }}</span>
+          </div>
+          <div class="kb-actions">
+            <button
+              v-if="!kb.is_active"
+              class="btn-approve"
+              style="flex: 0; padding: 6px 14px;"
+              @click="activateKb(kb.name)"
+            >激活</button>
+            <button
+              v-if="!kb.is_default"
+              class="btn-delete"
+              style="flex: 0;"
+              @click="deleteKb(kb.name)"
+            >删除</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 重建索引 -->
+      <div class="kb-rebuild-section">
+        <button
+          class="btn-rebuild"
+          :disabled="kbRebuilding"
+          @click="rebuildKb()"
+        >{{ kbRebuilding ? '重建中...' : '🔄 重建向量索引' }}</button>
+        <span class="kb-hint">当知识库文件更新后，需重建索引使变更生效</span>
       </div>
     </div>
 
@@ -1839,7 +2023,7 @@ async function getalladmins() {
 
     <!-- 0级管理员提示 -->
     <div v-if="isSuperAdmin" class="admin-tip">
-      <p>超级管理员权限：仅可管理管理员账号</p>
+      <p>超级管理员权限：可管理管理员账号和知识库</p>
       <p>食谱、食材、用户管理请使用1级管理员账号</p>
     </div>
   </div>
@@ -2840,5 +3024,144 @@ async function getalladmins() {
   margin-top: 0.8rem;
   color: #78909c;
   font-size: 0.9rem;
+}
+
+/* === 知识库管理 === */
+.kb-active-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: #e8f5e9;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
+
+.kb-active-label {
+  color: #555;
+}
+
+.kb-active-name {
+  font-weight: 600;
+  color: #2e7d32;
+}
+
+.kb-active-count {
+  color: #78909c;
+  font-size: 0.85rem;
+  margin-left: auto;
+}
+
+.kb-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 12px 14px;
+  background: #f9f9f9;
+  border-radius: 8px;
+  transition: background 0.2s;
+}
+
+.kb-item:hover {
+  background: #f0fdf4;
+}
+
+.kb-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex: 1;
+}
+
+.kb-name {
+  font-weight: 500;
+  color: #2e7d32;
+}
+
+.kb-tag {
+  font-size: 0.7rem;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 500;
+}
+
+.kb-tag.tag-default {
+  background: #e3f2fd;
+  color: #1976d2;
+}
+
+.kb-tag.tag-active {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+.kb-tag.tag-inactive {
+  background: #f5f5f5;
+  color: #9e9e9e;
+}
+
+.kb-meta {
+  font-size: 0.8rem;
+  color: #9e9e9e;
+}
+
+.kb-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.kb-rebuild-section {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid #eee;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.btn-rebuild {
+  padding: 8px 16px;
+  background: #fff3e0;
+  color: #e65100;
+  border: 1px solid #ffe0b2;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: all 0.2s;
+}
+
+.btn-rebuild:hover {
+  background: #ffe0b2;
+}
+
+.btn-rebuild:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.kb-hint {
+  font-size: 0.8rem;
+  color: #9e9e9e;
+}
+
+@media (max-width: 600px) {
+  .kb-item {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .kb-actions {
+    margin-top: 6px;
+    align-self: flex-end;
+  }
+
+  .kb-rebuild-section {
+    flex-direction: column;
+    align-items: flex-start;
+  }
 }
 </style>

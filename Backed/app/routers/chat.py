@@ -21,6 +21,8 @@ from app.models.person import Person
 from app.models.user import User
 from app.models.recipe import Recipe
 from app.schemas.recipe import RecipeStatus
+from app.utils.vector_store import query_knowledge, initialize_knowledge_base
+from app.utils.rag_knowledge import build_chunk_text
 
 router = APIRouter(prefix="/chat", tags=["AI 聊天"])
 
@@ -86,6 +88,23 @@ TOOL_DEFINITIONS = [
                     }
                 },
                 "required": ["name"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "query_dietary_restriction",
+            "description": "查询某种疾病的饮食忌口和注意事项。当用户问'某某病不能吃什么'、'有什么忌口'、'饮食要注意什么'时使用此工具",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "condition": {
+                        "type": "string",
+                        "description": "疾病或症状名称，如：感冒、糖尿病、高血压、咳嗽、哮喘等"
+                    }
+                },
+                "required": ["condition"]
             }
         }
     }
@@ -294,10 +313,48 @@ def _execute_recipe_info(name: str, db: Session) -> dict:
     }
 
 
+def _execute_dietary_restriction(condition: str) -> dict:
+    """查询疾病饮食忌口（被 AI tool call 调用）
+
+    Args:
+        condition: 疾病或症状名称
+
+    Returns:
+        忌口信息字典
+    """
+    initialize_knowledge_base()
+
+    results = query_knowledge(
+        query=condition,
+        top_k=5,
+        threshold=0.3,
+    )
+
+    if not results:
+        return {"error": f"未找到与「{condition}」相关的饮食忌口信息", "disease": condition}
+
+    items = []
+    for record, score in results:
+        items.append({
+            "disease": record.disease,
+            "category": record.category,
+            "restricted_foods": record.restricted_foods,
+            "restriction_detail": record.restriction_detail,
+            "notes": record.notes,
+            "similarity": round(score, 4),
+        })
+
+    return {
+        "query": condition,
+        "results": items,
+        "total": len(items),
+    }
+
+
 def _build_system_prompt() -> str:
     """构建带 skill 说明的系统提示词"""
     return (
-        "你是一个智能饮食推荐助手，名叫 EATING AI。你有以下两个工具可用：\n\n"
+        "你是一个智能饮食推荐助手，名叫 EATING AI。你有以下三个工具可用：\n\n"
         "【工具1：recommend_recipes】\n"
         "当用户请求推荐食谱时调用。支持额外参数：\n"
         "- cuisine：筛选菜系，如「川菜」\n"
@@ -305,11 +362,15 @@ def _build_system_prompt() -> str:
         "- taste_adjustments：口味微调，如用户说「不要太甜」传入 {\"sweet\":\"decrease\"}\n\n"
         "【工具2：get_recipe_info】\n"
         "当用户询问某道菜的做法、材料、步骤等信息时调用。支持模糊匹配。\n\n"
+        "【工具3：query_dietary_restriction】\n"
+        "当用户询问某种疾病的饮食忌口、不能吃什么、饮食注意事项时调用。\n"
+        "传入疾病名称（如「糖尿病」「感冒」「高血压」），返回该疾病的忌口食物清单。\n\n"
         "【严格规则】\n"
         "1. 只使用工具返回的数据，绝不编造食谱名称或链接。\n"
         "2. 推荐食谱时使用 [名称](url) 格式，名称和链接来自工具返回数据。\n"
         "3. 查询食谱时如未精确匹配，会进行模糊搜索，返回最接近的结果。\n"
-        "4. 如果用户指定了菜系、排除食材或口味要求，请传给 recommend_recipes 的对应参数。"
+        "4. 如果用户指定了菜系、排除食材或口味要求，请传给 recommend_recipes 的对应参数。\n"
+        "5. 回答疾病忌口问题时，清晰列出需要避免的食物类别，并给出具体食物名称。"
     )
 
 
@@ -415,6 +476,14 @@ async def chat(
         elif tc.function.name == "get_recipe_info":
             name = args.get("name", "")
             result = _execute_recipe_info(name, db)
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": json.dumps(result, ensure_ascii=False),
+            })
+        elif tc.function.name == "query_dietary_restriction":
+            condition = args.get("condition", "")
+            result = _execute_dietary_restriction(condition)
             messages.append({
                 "role": "tool",
                 "tool_call_id": tc.id,

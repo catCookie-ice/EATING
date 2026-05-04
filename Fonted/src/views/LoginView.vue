@@ -2,6 +2,8 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores'
+import axios from 'axios'
+
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -27,9 +29,17 @@ async function handleSubmit() {
   try {
     if (isLogin.value) {
       const result = await auth.login(account.value, password.value)
+      console.log(result)
+      
       if (result.must_reset_password) {
         router.push('/profile')
       } else if (result.is_admin) {
+        // const sureAdmin = await axios.get('/api/admin/is_admin')
+        // if(!sureAdmin.data.is_admin){
+        //   error.value = '身份异常，无法登录'
+        //   loading.value = false
+        //   return
+        // }
         router.push('/admin')
       } else {
         router.push('/')

@@ -43,6 +43,7 @@ export const useAuthStore = defineStore('auth', () => {
     axios.defaults.headers.common['Authorization'] = `Bearer ${token.value}`
     // 登录后强制重新初始化（可能之前已经 initialized，需强制刷新身份）
     await init(true)
+    console.log("data", res.data)
     return res.data
   }
 

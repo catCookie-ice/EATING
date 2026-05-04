@@ -287,6 +287,7 @@ def login(login_data: LoginRequest, db: Session = Depends(get_db)):
 
     return {
         "access_token": token,
+        "is_admin": is_admin,
         "token_type": "bearer",
         "account": person.account
     }

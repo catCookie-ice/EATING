@@ -221,3 +221,10 @@ def admin_reset_password(
     db.commit()
 
     return {"message": f"管理员 {password_data.target_account} 的密码已重置"}
+
+# 以下本用于在管理员跳转前再次验证管理员身份 ，现在想来有些多余
+# @router.get("/is_admin")
+# def is_admin(admin: Admin = Depends(require_admin)):
+#     if admin is None:
+#         return {"is_admin": False}
+#     return {"is_admin": True}

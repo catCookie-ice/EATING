@@ -21,9 +21,9 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
 
-    # Admin default
+    # 0级管理员配置
     ADMIN_0_ACCOUNT: str = "a7s90001"
-    ADMIN_0_PASSWORD: str = "admin0000"
+    ADMIN_0_PASSWORD: str = "admin0000"# 注意，请务必牢记最高管理员的密码
 
     # 存储配置
     STORAGE_TYPE: StorageType = StorageType.LOCAL  # 存储类型：cloud/local/mixed
@@ -57,5 +57,12 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379/0"
     REDIS_CACHE_TTL_RECIPES: int = 300  # 食谱列表缓存时间（秒）
     REDIS_CACHE_TTL_INGREDIENTS: int = 600  # 食材列表缓存时间（秒）
+
+    # RAG / 向量检索 配置
+    EMBEDDING_MODEL: str = "shibing624/text2vec-base-chinese"  # 嵌入模型名称
+    RAG_TOP_K: int = 5              # 默认检索返回记录数
+    RAG_SIMILARITY_THRESHOLD: float = 0.3  # 相似度阈值
+    KB_UPLOAD_DIR: str = "knowledge_bases"  # 上传的知识库存放目录（相对于 resource/）
+    KB_DEFAULT_FILE: str = "常见疾病与对应忌口.txt"  # 默认知识库文件
 
 settings = Settings()

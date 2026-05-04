@@ -12,3 +12,5 @@ passlib
 cos-python-sdk-v5
 openai>=1.0.0
 redis
+sentence-transformers>=2.2.0
+numpy
