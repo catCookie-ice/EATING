@@ -6,12 +6,6 @@ import base64
 from typing import Tuple
 
 
-def generate_key() -> str:
-    """生成4位随机密钥"""
-    import random
-    return ''.join(random.choices('0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ', k=4))
-
-
 def encrypt_email(email: str, key: str) -> str:
     """
     加密邮箱
@@ -41,6 +35,7 @@ def encrypt_email(email: str, key: str) -> str:
 def decrypt_email(encrypted_email: str, key: str) -> str:
     """
     解密邮箱
+    前4位明文，其余部分用密钥解密还原
     """
     if '@' not in encrypted_email:
         return encrypted_email
@@ -50,10 +45,10 @@ def decrypt_email(encrypted_email: str, key: str) -> str:
         return encrypted_email
 
     prefix = local[:4]
-    # 尝试解密
-    # 实际上我们需要存储加密部分以便解密
-    # 这里简化处理：假设我们能识别加密部分
-    # 更完善的实现需要记录原始邮箱的哪些部分被加密
+    encrypted_part = local[4:]
+    if encrypted_part:
+        decrypted_part = _simple_decrypt(encrypted_part, key)
+        return f"{prefix}{decrypted_part}@{domain}"
     return encrypted_email
 
 
@@ -92,6 +87,13 @@ def decrypt_phone(encrypted_phone: str, key: str) -> str:
     return f"{decrypted}{suffix}" if decrypted else encrypted_phone
 
 
+def _get_shift(c: str) -> int:
+    """从密钥字符中提取位移值（0-9数字映射0-9，A-Z字母映射10-35）"""
+    if c.isdigit():
+        return int(c)
+    return ord(c.upper()) - ord('A') + 10
+
+
 def _simple_encrypt(text: str, key: str) -> str:
     """
     简单加密：使用密钥进行位移和替换
@@ -104,7 +106,7 @@ def _simple_encrypt(text: str, key: str) -> str:
     for i, char in enumerate(text):
         if char.isdigit():
             # 数字加密
-            shift = int(key[i % key_len])
+            shift = _get_shift(key[i % key_len])
             result.append(str((int(char) + shift) % 10))
         elif char.isalpha():
             # 字母加密
@@ -129,7 +131,7 @@ def _simple_decrypt(text: str, key: str) -> str:
     key_len = len(key)
     for i, char in enumerate(text):
         if char.isdigit():
-            shift = int(key[i % key_len])
+            shift = _get_shift(key[i % key_len])
             result.append(str((int(char) - shift) % 10))
         elif char.isalpha():
             shift = ord(key[i % key_len].upper()) - ord('A') + 1
@@ -142,17 +144,33 @@ def _simple_decrypt(text: str, key: str) -> str:
     return ''.join(result)
 
 
+def _extract_key(contact: str) -> str:
+    """从联系方式中提取加密密钥
+    邮箱：取@前最后4位字符
+    手机号：取最后4位数字
+    """
+    if '@' in contact:
+        local = contact.split('@')[0]
+        if len(local) >= 4:
+            return local[-4:]
+        return local.zfill(4)
+    # 手机号：取最后4位数字
+    digits = ''.join(c for c in contact if c.isdigit())
+    if len(digits) >= 4:
+        return digits[-4:]
+    return digits.zfill(4)
+
+
 def encrypt_contact(contact: str) -> Tuple[str, str]:
     """
     加密联系方式，返回加密后的字符串和密钥
+    密钥自动从联系方式中提取（邮箱取本地部分后4位数字，手机号取后4位数字）
     """
-    key = generate_key()
+    key = _extract_key(contact)
 
     if '@' in contact:
-        # 邮箱
         encrypted = encrypt_email(contact, key)
     else:
-        # 手机号
         encrypted = encrypt_phone(contact, key)
 
     return encrypted, key

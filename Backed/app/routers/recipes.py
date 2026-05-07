@@ -15,7 +15,7 @@ from app.models.user import User
 from app.models.ingredient import Ingredient
 from app.schemas.recipe import RecipeCreate, RecipeUpdate, RecipeResponse, PaginatedRecipeResponse, RecipeStatus
 from app.schemas.user import TastePreference
-from app.dependencies import get_current_admin, get_current_user, require_admin
+from app.dependencies import get_current_admin, get_current_user, get_optional_current_user, require_admin
 from app.utils.text_filter import TextFilter
 from app.utils.jwt import decode_access_token
 from app.utils.storage import get_storage
@@ -203,9 +203,13 @@ def list_recipes(
     page_size: int = 20,
     cuisine: str = None,
     is_halal: bool = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Optional[dict] = Depends(get_optional_current_user),
 ):
-    """获取公开的食谱列表（分页 + Redis 缓存）"""
+    """获取公开的食谱列表（分页 + Redis 缓存）
+
+    未登录用户只能获取第1页数据
+    """
     from app.schemas.recipe import RecipeStatus
 
     # 参数校验
@@ -215,6 +219,10 @@ def list_recipes(
         page_size = 20
     if page_size > 100:
         page_size = 100
+
+    # 未登录用户只能获取第1页
+    if current_user is None and page > 1:
+        page = 1
 
     # 尝试从缓存读取
     cache_key = make_cache_key(
@@ -240,7 +248,7 @@ def list_recipes(
         query = query.filter(Recipe.is_halal == is_halal)
 
     total = query.count()
-    recipes = query.offset((page - 1) * page_size).limit(page_size).all()
+    recipes = query.order_by(Recipe.id).offset((page - 1) * page_size).limit(page_size).all()
 
     # 为每个食谱添加来源头像
     items = []

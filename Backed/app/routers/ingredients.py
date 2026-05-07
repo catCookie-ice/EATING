@@ -9,7 +9,7 @@ from app.models.ingredient import Ingredient
 from app.models.recipe import Recipe
 from app.models.admin import Admin
 from app.schemas.ingredient import IngredientCreate, IngredientUpdate, IngredientResponse, PaginatedIngredientResponse
-from app.dependencies import require_admin
+from app.dependencies import require_admin, get_optional_current_user
 from app.utils.text_filter import TextFilter
 from app.utils.storage import get_storage
 from app.utils.redis_cache import make_cache_key, get_cache, set_cache, delete_cache_pattern
@@ -70,9 +70,13 @@ def list_ingredients(
     page: int = 1,
     page_size: int = 20,
     category: str = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Optional[dict] = Depends(get_optional_current_user),
 ):
-    """获取食材列表（分页 + Redis 缓存）"""
+    """获取食材列表（分页 + Redis 缓存）
+
+    未登录用户只能获取第1页数据
+    """
     # 参数校验
     if page < 1:
         page = 1
@@ -80,6 +84,10 @@ def list_ingredients(
         page_size = 20
     if page_size > 100:
         page_size = 100
+
+    # 未登录用户只能获取第1页
+    if current_user is None and page > 1:
+        page = 1
 
     # 尝试从缓存读取
     cache_key = make_cache_key(
@@ -99,7 +107,7 @@ def list_ingredients(
         query = query.filter(Ingredient.category == category)
 
     total = query.count()
-    ingredients = query.offset((page - 1) * page_size).limit(page_size).all()
+    ingredients = query.order_by(Ingredient.id).offset((page - 1) * page_size).limit(page_size).all()
 
     # 为每个食材添加解析后的封面URL
     items = []

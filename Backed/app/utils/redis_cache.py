@@ -86,3 +86,37 @@ def delete_cache_pattern(pattern: str):
             r.delete(*keys)
     except Exception:
         pass
+
+
+def blacklist_token(token: str, ttl: int):
+    """将token加入黑名单（token将立即失效）
+
+    Args:
+        token: JWT token 字符串
+        ttl: 黑名单有效期（秒），建议设为token剩余有效期
+    """
+    try:
+        r = get_redis()
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        key = f"token:blacklist:{token_hash}"
+        r.setex(key, ttl, "1")
+    except Exception:
+        pass
+
+
+def is_token_blacklisted(token: str) -> bool:
+    """检查token是否在黑名单中
+
+    Args:
+        token: JWT token 字符串
+
+    Returns:
+        True=已拉黑，False=正常（Redis不可用时返回False）
+    """
+    try:
+        r = get_redis()
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        key = f"token:blacklist:{token_hash}"
+        return r.exists(key) > 0
+    except Exception:
+        return False

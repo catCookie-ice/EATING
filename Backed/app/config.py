@@ -58,6 +58,12 @@ class Settings(BaseSettings):
     REDIS_CACHE_TTL_RECIPES: int = 300  # 食谱列表缓存时间（秒）
     REDIS_CACHE_TTL_INGREDIENTS: int = 600  # 食材列表缓存时间（秒）
 
+    # SMTP 邮件配置
+    SMTP_SERVER: str = "smtp.163.com"
+    SMTP_PORT: int = 465
+    SMTP_USER: str = "catcookie2026@163.com"
+    SMTP_PASSWORD: str = "QTPLh37Dq7kRethn"
+
     # RAG / 向量检索 配置
     EMBEDDING_MODEL: str = "shibing624/text2vec-base-chinese"  # 嵌入模型名称
     RAG_TOP_K: int = 5              # 默认检索返回记录数

@@ -763,6 +763,7 @@ async function deleteMyRecipe(recipeId: number) {
       </div>
 
       <div class="profile-actions">
+        <button class="btn-edit-profile" @click="router.push('/profile/edit')">编辑资料</button>
         <button class="btn-logout" @click="handleLogout">退出登录</button>
       </div>
     </div>
@@ -1501,7 +1502,24 @@ async function deleteMyRecipe(recipeId: number) {
   gap: 1rem;
 }
 
+.btn-edit-profile {
+  flex: 1;
+  background: #e8f5e9;
+  color: #2e7d32;
+  border: none;
+  padding: 0.8rem 1.5rem;
+  border-radius: 12px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.3s ease;
+}
+
+.btn-edit-profile:hover {
+  background: #c8e6c9;
+}
+
 .btn-logout {
+  flex: 1;
   background: #ffebee;
   color: #d32f2f;
   border: none;

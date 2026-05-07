@@ -22,6 +22,21 @@ const loading = ref(false)
 const generatedAccount = ref('')
 const showAccountModal = ref(false)
 
+// 找回密码
+const showForgotModal = ref(false)
+const forgotStep = ref(0)
+const forgotAccount = ref('')
+const forgotEmailKey = ref('')
+const forgotMaskedEmail = ref('')
+const forgotCode = ref('')
+const forgotNewPassword = ref('')
+const forgotConfirmPassword = ref('')
+const forgotResetToken = ref('')
+const forgotCooldown = ref(0)
+const forgotError = ref('')
+const forgotLoading = ref(false)
+let forgotCooldownTimer: ReturnType<typeof setInterval> | null = null
+
 async function handleSubmit() {
   error.value = ''
   loading.value = true
@@ -112,6 +127,156 @@ function switchToLogin() {
   password.value = ''
   error.value = ''
 }
+
+// ===== 找回密码 =====
+async function handleGetEmailInfo() {
+  forgotError.value = ''
+  forgotLoading.value = true
+  try {
+    const res = await axios.get(`/api/auth/forgot-password/${forgotAccount.value}`)
+    forgotEmailKey.value = res.data.email_key
+    forgotMaskedEmail.value = res.data.masked_email
+    forgotStep.value = 1
+  } catch (e: any) {
+    forgotError.value = e.response?.data?.detail || '获取验证信息失败'
+  } finally {
+    forgotLoading.value = false
+  }
+}
+
+async function handleConfirmEmail() {
+  forgotError.value = ''
+  forgotLoading.value = true
+  try {
+    await axios.post('/api/auth/forgot-password/confirm-email', {
+      account: forgotAccount.value
+    })
+    forgotStep.value = 2
+    handleSendCode()
+  } catch (e: any) {
+    forgotError.value = e.response?.data?.detail || '确认邮箱失败'
+    forgotLoading.value = false
+  }
+}
+
+async function handleSendCode() {
+  forgotError.value = ''
+  forgotLoading.value = true
+  try {
+    await axios.post('/api/auth/forgot-password/send-code', {
+      account: forgotAccount.value
+    })
+    startForgotCooldown()
+  } catch (e: any) {
+    forgotError.value = e.response?.data?.detail || '发送验证码失败'
+  } finally {
+    forgotLoading.value = false
+  }
+}
+
+async function handleVerifyCode() {
+  forgotError.value = ''
+  forgotLoading.value = true
+  try {
+    const res = await axios.post('/api/auth/forgot-password/verify-code', {
+      account: forgotAccount.value,
+      code: forgotCode.value
+    })
+    forgotResetToken.value = res.data.reset_token
+    forgotStep.value = 3
+  } catch (e: any) {
+    forgotError.value = e.response?.data?.detail || '验证码错误'
+  } finally {
+    forgotLoading.value = false
+  }
+}
+
+async function handleResetPassword() {
+  forgotError.value = ''
+  if (forgotNewPassword.value.length < 6) {
+    forgotError.value = '密码长度至少6位'
+    return
+  }
+  if (forgotNewPassword.value !== forgotConfirmPassword.value) {
+    forgotError.value = '两次密码输入不一致'
+    return
+  }
+  forgotLoading.value = true
+  try {
+    await axios.post('/api/auth/forgot-password/reset', {
+      account: forgotAccount.value,
+      new_password: forgotNewPassword.value,
+      reset_token: forgotResetToken.value
+    })
+    forgotStep.value = 4
+  } catch (e: any) {
+    forgotError.value = e.response?.data?.detail || '密码重置失败'
+  } finally {
+    forgotLoading.value = false
+  }
+}
+
+function startForgotCooldown() {
+  forgotCooldown.value = 60
+  if (forgotCooldownTimer) clearInterval(forgotCooldownTimer)
+  forgotCooldownTimer = setInterval(() => {
+    forgotCooldown.value--
+    if (forgotCooldown.value <= 0) {
+      if (forgotCooldownTimer) {
+        clearInterval(forgotCooldownTimer)
+        forgotCooldownTimer = null
+      }
+    }
+  }, 1000)
+}
+
+function openForgotModal() {
+  showForgotModal.value = true
+  forgotStep.value = 0
+  forgotAccount.value = account.value
+  forgotEmailKey.value = ''
+  forgotMaskedEmail.value = ''
+  forgotCode.value = ''
+  forgotNewPassword.value = ''
+  forgotConfirmPassword.value = ''
+  forgotResetToken.value = ''
+  forgotCooldown.value = 0
+  forgotError.value = ''
+  forgotLoading.value = false
+  if (forgotCooldownTimer) {
+    clearInterval(forgotCooldownTimer)
+    forgotCooldownTimer = null
+  }
+}
+
+function goBackForgotStep() {
+  forgotError.value = ''
+  if (forgotStep.value === 1) {
+    forgotStep.value = 0
+  } else if (forgotStep.value === 2) {
+    forgotStep.value = 1
+  } else if (forgotStep.value === 3) {
+    forgotStep.value = 2
+  }
+}
+
+function closeForgotModal() {
+  showForgotModal.value = false
+  forgotStep.value = 0
+  forgotAccount.value = ''
+  forgotEmailKey.value = ''
+  forgotMaskedEmail.value = ''
+  forgotCode.value = ''
+  forgotNewPassword.value = ''
+  forgotConfirmPassword.value = ''
+  forgotResetToken.value = ''
+  forgotCooldown.value = 0
+  forgotError.value = ''
+  if (forgotCooldownTimer) {
+    clearInterval(forgotCooldownTimer)
+    forgotCooldownTimer = null
+  }
+}
 </script>
 
 <template>
@@ -173,6 +338,7 @@ function switchToLogin() {
                 :placeholder="isLogin ? '请输入密码' : '请设置登录密码'"
                 required
               />
+              <a v-if="isLogin" class="forgot-link" @click="openForgotModal">找回密码？</a>
             </div>
 
             <!-- 注册：确认密码（按钮触发后显示） -->
@@ -248,6 +414,123 @@ function switchToLogin() {
           <p>若您出现了过敏反应，请及时就医，我们将诚信为你感到担忧，祝您早日康复，但本项目声明不对此负责。</p>
         </div>
         <button class="modal-btn" @click="showTermsModal = false">我已阅读</button>
+      </div>
+    </div>
+
+    <!-- 找回密码弹窗 -->
+    <div v-if="showForgotModal" class="modal-overlay">
+      <div class="modal forgot-modal">
+        <button class="modal-close" @click="closeForgotModal">&times;</button>
+
+        <!-- Step 0: 输入账号 -->
+        <template v-if="forgotStep === 0">
+          <div class="modal-icon">🔑</div>
+          <h3>找回密码</h3>
+          <p class="modal-desc">输入您的账号，我们将验证您的身份</p>
+          <div class="forgot-form">
+            <div class="form-group">
+              <label>账号</label>
+              <input
+                v-model="forgotAccount"
+                type="text"
+                placeholder="请输入账号"
+                required
+              />
+            </div>
+            <div v-if="forgotError" class="error-message">{{ forgotError }}</div>
+            <button class="forgot-btn" :disabled="forgotLoading || !forgotAccount" @click="handleGetEmailInfo">
+              {{ forgotLoading ? '验证中...' : '获取验证信息' }}
+            </button>
+          </div>
+        </template>
+
+        <!-- Step 1: 确认邮箱 -->
+        <template v-if="forgotStep === 1">
+          <div class="modal-icon">📧</div>
+          <h3>确认邮箱</h3>
+          <p class="modal-desc">您的邮箱前四位为：</p>
+          <div class="email-key-display">{{ forgotEmailKey }}</div>
+          <p class="modal-desc" style="margin-top: 0.5rem;">
+            脱敏邮箱：<span class="masked-email">{{ forgotMaskedEmail }}</span>
+          </p>
+          <p class="modal-tip">确认这是您的邮箱吗？</p>
+          <div v-if="forgotError" class="error-message">{{ forgotError }}</div>
+          <div class="forgot-actions">
+            <button class="forgot-btn-secondary" @click="goBackForgotStep">返回</button>
+            <button class="forgot-btn" :disabled="forgotLoading" @click="handleConfirmEmail">
+              {{ forgotLoading ? '确认中...' : '确认是我的邮箱' }}
+            </button>
+          </div>
+        </template>
+
+        <!-- Step 2: 验证码 -->
+        <template v-if="forgotStep === 2">
+          <div class="modal-icon">✉️</div>
+          <h3>验证码已发送</h3>
+          <p class="modal-desc">验证码已发送至您的邮箱，请在1分钟内查收</p>
+          <div class="forgot-form">
+            <div class="form-group">
+              <label>验证码</label>
+              <input
+                v-model="forgotCode"
+                type="text"
+                maxlength="4"
+                placeholder="请输入4位验证码"
+              />
+            </div>
+            <div class="send-code-row">
+              <button
+                class="forgot-btn-secondary send-code-btn"
+                :disabled="forgotCooldown > 0 || forgotLoading"
+                @click="handleSendCode"
+              >
+                {{ forgotCooldown > 0 ? `重新发送(${forgotCooldown}s)` : '发送验证码' }}
+              </button>
+            </div>
+            <div v-if="forgotError" class="error-message">{{ forgotError }}</div>
+            <button class="forgot-btn" :disabled="forgotLoading || forgotCode.length !== 4" @click="handleVerifyCode">
+              {{ forgotLoading ? '验证中...' : '确认验证码' }}
+            </button>
+          </div>
+          <button class="forgot-link-btn" @click="goBackForgotStep">返回上一步</button>
+        </template>
+
+        <!-- Step 3: 重置密码 -->
+        <template v-if="forgotStep === 3">
+          <div class="modal-icon">🔒</div>
+          <h3>重置密码</h3>
+          <p class="modal-desc">请输入您的新密码</p>
+          <div class="forgot-form">
+            <div class="form-group">
+              <label>新密码</label>
+              <input
+                v-model="forgotNewPassword"
+                type="password"
+                placeholder="至少6位密码"
+              />
+            </div>
+            <div class="form-group">
+              <label>确认密码</label>
+              <input
+                v-model="forgotConfirmPassword"
+                type="password"
+                placeholder="再次输入新密码"
+              />
+            </div>
+            <div v-if="forgotError" class="error-message">{{ forgotError }}</div>
+            <button class="forgot-btn" :disabled="forgotLoading || !forgotNewPassword || !forgotConfirmPassword" @click="handleResetPassword">
+              {{ forgotLoading ? '重置中...' : '重置密码' }}
+            </button>
+          </div>
+        </template>
+
+        <!-- Step 4: 成功 -->
+        <template v-if="forgotStep === 4">
+          <div class="modal-icon">✅</div>
+          <h3>密码已重置</h3>
+          <p class="modal-desc">您的密码已成功修改，请使用新密码登录</p>
+          <button class="forgot-btn" @click="closeForgotModal">完成</button>
+        </template>
       </div>
     </div>
   </div>
@@ -608,6 +891,145 @@ function switchToLogin() {
 .modal-btn:hover {
   transform: translateY(-2px);
   box-shadow: 0 4px 15px rgba(76, 175, 80, 0.3);
+}
+
+/* 找回密码链接 */
+.forgot-link {
+  display: block;
+  text-align: right;
+  font-size: 0.8rem;
+  color: #1976d2;
+  cursor: pointer;
+  margin-top: 0.3rem;
+  text-decoration: none;
+}
+
+.forgot-link:hover {
+  text-decoration: underline;
+}
+
+/* 找回密码弹窗 */
+.forgot-modal {
+  max-width: 400px;
+  position: relative;
+}
+
+.modal-close {
+  position: absolute;
+  top: 0.5rem;
+  right: 1rem;
+  font-size: 1.5rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #999;
+  padding: 0.25rem 0.5rem;
+  line-height: 1;
+}
+
+.modal-close:hover {
+  color: #333;
+}
+
+.forgot-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  margin-top: 1rem;
+}
+
+.forgot-btn {
+  background: linear-gradient(135deg, #43a047, #2e7d32);
+  color: white;
+  border: none;
+  padding: 0.8rem;
+  border-radius: 10px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  width: 100%;
+}
+
+.forgot-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 15px rgba(76, 175, 80, 0.3);
+}
+
+.forgot-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.forgot-btn-secondary {
+  background: white;
+  color: #43a047;
+  border: 2px solid #43a047;
+  padding: 0.7rem 1.2rem;
+  border-radius: 10px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.forgot-btn-secondary:hover:not(:disabled) {
+  background: #e8f5e9;
+}
+
+.forgot-btn-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.forgot-link-btn {
+  background: none;
+  border: none;
+  color: #1976d2;
+  font-size: 0.85rem;
+  cursor: pointer;
+  margin-top: 1rem;
+  text-decoration: underline;
+  display: block;
+  width: 100%;
+  text-align: center;
+}
+
+.forgot-actions {
+  display: flex;
+  gap: 0.8rem;
+  margin-top: 1rem;
+}
+
+.forgot-actions .forgot-btn,
+.forgot-actions .forgot-btn-secondary {
+  flex: 1;
+}
+
+.email-key-display {
+  background: #e8f5e9;
+  color: #2e7d32;
+  font-size: 2rem;
+  font-weight: 700;
+  padding: 0.8rem 1.5rem;
+  border-radius: 12px;
+  letter-spacing: 6px;
+  display: inline-block;
+  margin: 0.5rem 0;
+}
+
+.masked-email {
+  color: #43a047;
+  font-weight: 600;
+}
+
+.send-code-row {
+  display: flex;
+  justify-content: center;
+}
+
+.send-code-btn {
+  width: 100%;
 }
 
 @media (max-width: 768px) {

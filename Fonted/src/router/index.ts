@@ -40,6 +40,11 @@ const router = createRouter({
       component: () => import('../views/ProfileView.vue')
     },
     {
+      path: '/profile/edit',
+      name: 'profile-edit',
+      component: () => import('../views/ProfileEditView.vue')
+    },
+    {
       path: '/admin',
       name: 'admin',
       component: () => import('../views/AdminView.vue'),

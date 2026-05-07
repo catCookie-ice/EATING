@@ -8,7 +8,7 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     account = Column(String(20), unique=True, nullable=False, index=True, comment="关联账户")
     nickname = Column(String(50), nullable=False, unique=True, comment="昵称")
-    contact_encrypted = Column(String(255), comment="加密的邮箱/手机")
+    contact_encrypted = Column(String(255), comment="加密的邮箱")
     contact_key = Column(String(4), comment="加密密钥(4位)")
     gender = Column(String(10), comment="性别")
     age = Column(Integer, comment="年龄")

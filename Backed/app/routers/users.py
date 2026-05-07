@@ -82,6 +82,42 @@ def get_current_user_info(
     return enrich_user_with_avatar_url(user, db)
 
 
+@router.get("/me_edit")
+def get_current_user_edit_info(
+    person: Person = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """获取当前用户编辑信息（性别、年龄、脱敏邮箱、口味偏好）"""
+    user = db.query(User).filter(User.account == person.account).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="用户信息不存在"
+        )
+
+    result = {
+        "gender": user.gender,
+        "age": user.age,
+        "taste": user.taste,
+    }
+
+    # 处理脱敏邮箱（格式同找回密码：前4位明文 + ****@域名）
+    if user.contact_encrypted and user.contact_key and '@' in user.contact_encrypted:
+        raw_email = decrypt_contact(user.contact_encrypted, user.contact_key)
+        if '@' in raw_email:
+            raw_local, raw_domain = raw_email.split('@', 1)
+            if len(raw_local) > 4:
+                result["email"] = f"{raw_local[:4]}****@{raw_domain}"
+            else:
+                result["email"] = raw_email
+        else:
+            result["email"] = raw_email
+    else:
+        result["email"] = None
+
+    return result
+
+
 @router.get("/{account}", response_model=UserResponse)
 def get_user(
     account: str,
@@ -121,7 +157,8 @@ def update_current_user(
 
     # 处理口味偏好转换为字典和验证
     if "taste" in update_data and update_data["taste"]:
-        processed_taste, taste_warning = validate_taste(update_data["taste"])
+        taste_obj = TastePreference(**update_data["taste"])
+        processed_taste, taste_warning = validate_taste(taste_obj)
         if taste_warning:
             warnings.append(taste_warning)
         update_data["taste"] = processed_taste.model_dump()
@@ -209,7 +246,8 @@ def update_user(
 
     # 处理口味偏好转换为字典和验证
     if "taste" in update_data and update_data["taste"]:
-        processed_taste, taste_warning = validate_taste(update_data["taste"])
+        taste_obj = TastePreference(**update_data["taste"])
+        processed_taste, taste_warning = validate_taste(taste_obj)
         if taste_warning:
             warnings.append(taste_warning)
         update_data["taste"] = processed_taste.model_dump()
