@@ -61,13 +61,13 @@ def auto_enrich_recipe(recipe: Recipe, db: Session, allow_ai: bool = True):
 
     has_change = False
     # 定量：碳水/蛋白/脂肪
-    if enriched["carbohydrate"] > 0:
+    if enriched["carbohydrate"] is not None:
         recipe.carbohydrate = enriched["carbohydrate"]
         has_change = True
-    if enriched["protein"] > 0:
+    if enriched["protein"] is not None:
         recipe.protein = enriched["protein"]
         has_change = True
-    if enriched["fat"] > 0:
+    if enriched["fat"] is not None:
         recipe.fat = enriched["fat"]
         has_change = True
 
@@ -83,7 +83,7 @@ def auto_enrich_recipe(recipe: Recipe, db: Session, allow_ai: bool = True):
         has_change = True
 
     if has_change:
-        db.flush()
+        db.commit()
 
 
 # 新建一个独立的路由，专门用于搜索
@@ -581,11 +581,21 @@ def create_recipe(
         db_recipe.source = "用户"
 
     db.add(db_recipe)
+    # 注意：此时先不要 commit，让 auto_enrich_recipe 在内存中修改 db_recipe
+    # 如果你的 enrich_recipe_from_materials 依赖数据库中的 recipe.id，
+    # 可以先 flush() 获取 id，但不需要 commit。
+    db.flush()
+
+    # 在内存中修改属性
+    auto_enrich_recipe(db_recipe, db, allow_ai=is_admin)
+
+    # 统一进行一次 commit，包含主表和属性修改
     db.commit()
     db.refresh(db_recipe)
-    auto_enrich_recipe(db_recipe, db, allow_ai=is_admin)
+
     # 创建食谱后使列表缓存失效
     delete_cache_pattern("recipes:list:*")
+
     return db_recipe
 
 
@@ -619,9 +629,10 @@ def create_my_recipe(
     db_recipe.status = RecipeStatus.PRIVATE  # 默认私密
     db_recipe.creator_account = person.account
     db.add(db_recipe)
+    db.flush()
+    auto_enrich_recipe(db_recipe, db, allow_ai=False)
     db.commit()
     db.refresh(db_recipe)
-    auto_enrich_recipe(db_recipe, db, allow_ai=False)
     # 创建食谱后使列表缓存失效
     delete_cache_pattern("recipes:list:*")
     return db_recipe
@@ -668,9 +679,10 @@ def share_recipe(
     db_recipe.status = RecipeStatus.PENDING  # 默认待审核
     db_recipe.creator_account = person.account
     db.add(db_recipe)
+    db.flush()
+    auto_enrich_recipe(db_recipe, db, allow_ai=False)
     db.commit()
     db.refresh(db_recipe)
-    auto_enrich_recipe(db_recipe, db, allow_ai=False)
     # 分享食谱后使列表缓存失效
     delete_cache_pattern("recipes:list:*")
     return db_recipe
@@ -735,10 +747,11 @@ def update_my_recipe(
     for key, value in update_data.items():
         setattr(db_recipe, key, value)
 
-    db.commit()
-    db.refresh(db_recipe)
+    db.flush()
     if "materials" in update_data:
         auto_enrich_recipe(db_recipe, db, allow_ai=False)
+    db.commit()
+    db.refresh(db_recipe)
     # 更新食谱后使列表缓存失效
     delete_cache_pattern("recipes:list:*")
     return db_recipe
@@ -1172,10 +1185,11 @@ def update_recipe(
     for key, value in update_data.items():
         setattr(db_recipe, key, value)
 
-    db.commit()
-    db.refresh(db_recipe)
+    db.flush()
     if "materials" in update_data:
         auto_enrich_recipe(db_recipe, db, allow_ai=is_admin)
+    db.commit()
+    db.refresh(db_recipe)
     # 更新食谱后使列表缓存失效
     delete_cache_pattern("recipes:list:*")
     return db_recipe
