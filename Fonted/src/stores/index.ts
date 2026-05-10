@@ -131,14 +131,19 @@ export const useAuthStore = defineStore('auth', () => {
       // 先通过专用接口检查是否是管理员（不会累加 failed_admin_attempts）
       try {
         const checkRes = await axios.get('/api/auth/check-admin')
-        if (checkRes.data.is_admin) {
+        if (checkRes.data.is_normal_admin) {
           isAdmin.value = true
           adminLevel.value = checkRes.data.admin_level
           nickname.value = ''
           initialized.value = true
           return
         }
-        // 不是管理员，继续检查用户
+        // 不是管理员，继续是否是权限过期
+        if(checkRes.data.is_overtime || checkRes.data.detail){
+          alert('权限过期，请联系更高管理员延迟权限')
+          logout()
+          return
+        }
       } catch (e: any) {
         // 检查失败，继续检查用户
       }

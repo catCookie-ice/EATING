@@ -44,7 +44,6 @@ async function handleSubmit() {
   try {
     if (isLogin.value) {
       const result = await auth.login(account.value, password.value)
-      console.log(result)
       
       if (result.must_reset_password) {
         router.push('/profile')

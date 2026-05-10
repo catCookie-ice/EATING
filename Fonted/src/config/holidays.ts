@@ -11,6 +11,7 @@ export const holidayConfigs: HolidayConfig[] = [
   { time: '01-01', content: '新年伊始，来一顿[丰盛早餐](/recipes?cuisine=粤菜)开启美好一年！' },
   { time: '02-14', content: '今天是情人节，陈某对这天有些意见，所以，就这样吧' },
   { time: '05-01', content: '劳动节快乐！放假在家，来点[简易美食](/recipes?method=拌)' },
+  { time: '05-10', content: '今天是母亲节，给母亲一个[特殊美食](/recipes/1)吧' },
   { time: '06-01', content: '儿童节到了！和孩子一起动手做[趣味料理](/recipes?cuisine=川菜)' },
   { time: '08-15', content: '中秋佳节，[月饼做法](/recipes/1)学起来！' },
   { time: '10-01', content: '国庆假期，来顿[庆祝大餐](/recipes?cuisine=湘菜)' },

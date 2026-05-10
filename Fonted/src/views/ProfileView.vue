@@ -3,6 +3,7 @@ import { ref, onMounted, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores'
 import axios from 'axios'
+import { compressImage } from '../utils/image'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -271,11 +272,6 @@ function onAvatarFileChange(event: Event) {
       alert('请选择图片文件 (jpeg/png/gif/webp/bmp)')
       return
     }
-    // 检查文件大小 (最大5MB)
-    if (file.size > 5 * 1024 * 1024) {
-      alert('图片大小不能超过5MB')
-      return
-    }
     avatarFile.value = file
     // 生成预览
     const reader = new FileReader()
@@ -294,8 +290,11 @@ async function uploadAvatar() {
   }
   uploadingAvatar.value = true
   try {
+    // 压缩图片
+    const compressed = await compressImage(avatarFile.value)
+
     const formData = new FormData()
-    formData.append('file', avatarFile.value)
+    formData.append('file', compressed)
 
     const res = await axios.post('/api/upload/avatar', formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
@@ -314,7 +313,7 @@ async function uploadAvatar() {
     alert('头像更新成功')
     closeAvatarModal()
   } catch (e: any) {
-    alert(e.response?.data?.detail || '上传失败')
+    alert(e.response?.data?.detail || e.message || '上传失败')
   } finally {
     uploadingAvatar.value = false
   }
@@ -470,10 +469,12 @@ function addMineral() {
 // 上传封面图片
 async function uploadRecipeCover(file: File) {
   if (!file) return
-  const formData = new FormData()
-  formData.append('file', file)
   uploadingCover.value = true
   try {
+    // 压缩图片
+    const compressed = await compressImage(file)
+    const formData = new FormData()
+    formData.append('file', compressed)
     const res = await axios.post('/api/upload/cover', formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     })
@@ -481,7 +482,7 @@ async function uploadRecipeCover(file: File) {
     recipeCoverPreview.value = ''
     recipeCoverFile.value = null
   } catch (e: any) {
-    alert(e.response?.data?.detail || '封面上传失败')
+    alert(e.response?.data?.detail || e.message || '封面上传失败')
   } finally {
     uploadingCover.value = false
   }
@@ -492,16 +493,18 @@ async function onRecipeCoverSelect(e: Event) {
   const target = e.target as HTMLInputElement
   const file = target.files?.[0]
   if (file) {
-    const formData = new FormData()
-    formData.append('file', file)
     uploadingCover.value = true
     try {
+      // 压缩图片
+      const compressed = await compressImage(file)
+      const formData = new FormData()
+      formData.append('file', compressed)
       const res = await axios.post('/api/upload/cover', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       })
       recipeForm.value.pictures_url.push(res.data.url)
     } catch (e: any) {
-      alert(e.response?.data?.detail || '封面上传失败')
+      alert(e.response?.data?.detail || e.message || '封面上传失败')
     } finally {
       uploadingCover.value = false
       // 清空input，以便再次选择同一文件
@@ -611,7 +614,12 @@ async function saveMyRecipe() {
     const res = await axios.get('/api/recipes/my')
     myRecipes.value = res.data
   } catch (e: any) {
-    alert(e.response?.data?.detail || '保存失败')
+    const detail = e.response?.data?.detail
+    if (Array.isArray(detail)) {
+      alert(detail.map((d: any) => d.msg || JSON.stringify(d)).join('\n'))
+    } else {
+      alert(detail || '保存失败')
+    }
   }
 }
 
@@ -722,7 +730,7 @@ async function deleteMyRecipe(recipeId: number) {
             <input type="file" accept="image/jpeg,image/png,image/gif,image/webp,image/bmp" @change="onAvatarFileChange" hidden />
             选择图片
           </label>
-          <p class="upload-tip">支持 jpeg/png/gif/webp/bmp，最大5MB</p>
+          <p class="upload-tip">支持 jpeg/png/gif/webp/bmp，将自动压缩，压缩后限制5MB</p>
         </div>
         <div class="modal-actions">
           <button class="btn-confirm" @click="uploadAvatar" :disabled="!avatarFile || uploadingAvatar">

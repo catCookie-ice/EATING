@@ -331,13 +331,13 @@ def check_admin_status(
     # 检查是否为管理员
     admin = db.query(Admin).filter(Admin.account == account).first()
     if admin is None:
-        return {"is_admin": False, "admin_level": None}
+        return {"is_normal_admin": False, "admin_level": None}
 
     # 检查权限是否过期
     if admin.permission_until and admin.permission_until < datetime.now():
-        return {"is_admin": False, "admin_level": None, "detail": "管理员权限已过期"}
+        return {"is_normal_admin": False, "admin_level": None, "detail": "管理员权限已过期" ,"is_overtime": True}
 
-    return {"is_admin": True, "admin_level": admin.level}
+    return {"is_normal_admin": True, "admin_level": admin.level}
 
 
 @router.post("/reset-password")
