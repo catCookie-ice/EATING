@@ -4,7 +4,7 @@ DeepSeek AI 工具模块
 提供 DeepSeek API 的调用功能，使用 OpenAI 兼容接口
 """
 
-from typing import Any, Literal
+from typing import Any, Optional
 
 from openai import OpenAI
 from pydantic import BaseModel
@@ -12,16 +12,23 @@ from pydantic import BaseModel
 from app.config import settings
 
 
-
 # DeepSeek API 配置
 DEEPSEEK_API_KEY = settings.DEEPSEEK_API_KEY or ""
 DEEPSEEK_MODEL = settings.DEEPSEEK_MODEL or "deepseek-chat"
 
-# 初始化客户端
-client = OpenAI(
-    api_key=DEEPSEEK_API_KEY,
-    base_url="https://api.deepseek.com",
-)
+# 惰性初始化客户端
+_client: Optional[OpenAI] = None
+
+
+def get_client() -> OpenAI:
+    """获取 OpenAI 客户端（惰性初始化）"""
+    global _client
+    if _client is None:
+        _client = OpenAI(
+            api_key=DEEPSEEK_API_KEY,
+            base_url="https://api.deepseek.com",
+        )
+    return _client
 
 
 class DeepSeekResponse(BaseModel):
@@ -55,7 +62,7 @@ def chat(
         raise ValueError("DEEPSEEK_API_KEY 未配置，请在 .env 中设置")
 
     if stream:
-        return client.chat.completions.create(
+        return get_client().chat.completions.create(
             model=model,
             messages=messages,
             temperature=temperature,
@@ -63,7 +70,7 @@ def chat(
             stream=True,
         )
 
-    response = client.chat.completions.create(
+    response = get_client().chat.completions.create(
         model=model,
         messages=messages,
         temperature=temperature,

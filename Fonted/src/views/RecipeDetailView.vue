@@ -1,8 +1,15 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores'
 import axios from 'axios'
+import { getRecipeEmoji, getFirstImage } from '../utils/recipe'
+import NutritionCard from '../components/NutritionCard.vue'
+import TasteBars from '../components/TasteBars.vue'
+import MaterialsList from '../components/MaterialsList.vue'
+import SeasoningsList from '../components/SeasoningsList.vue'
+import StepsList from '../components/StepsList.vue'
+import AllergenAlert from '../components/AllergenAlert.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -87,60 +94,11 @@ onMounted(async () => {
   }
 })
 
-function getRecipeEmoji(name: string): string {
-  const emojiMap: Record<string, string> = {
-    '炒': '🍳', '煮': '🍲', '蒸': '🥟', '炸': '🍟', '烤': '🍕',
-    '焖': '🍚', '凉拌': '🥗', '沙拉': '🥗', '汤': '🍜', '面': '🍜',
-    '饭': '🍚', '肉': '🥩', '鱼': '🐟', '鸡': '🍗', '蔬': '🥬', '默认': '🍽️'
-  }
-  for (const key in emojiMap) {
-    if (name.includes(key)) return emojiMap[key]
-  }
-  return emojiMap['默认']
+function getFirstImageLocal(): string | null {
+  return getFirstImage(recipe.value)
 }
 
-function getFirstImage(): string | null {
-  if (recipe.value?.pictures_url && Array.isArray(recipe.value.pictures_url) && recipe.value.pictures_url.length > 0) {
-    return recipe.value.pictures_url[0]
-  }
-  return null
-}
-
-const tasteDisplay = computed(() => {
-  if (!recipe.value?.taste) return []
-  const labels: Record<string, string> = { sour: '酸', sweet: '甜', bitter: '苦', spicy: '辣', salty: '咸' }
-  return Object.keys(recipe.value.taste).map(key => ({
-    key,
-    label: labels[key] || key,
-    value: recipe.value.taste[key] as number
-  }))
-})
-
-// 转换材料格式：从 {key: value} 转为 {材料名: key, 重量: value}
-function parseMaterials(materials: any[]): { 材料名: string; 重量: string }[] {
-  if (!materials) return []
-  return materials.map(item => {
-    const key = Object.keys(item)[0]
-    return { 材料名: key, 重量: item[key] }
-  })
-}
-
-// 转换调料格式
-function parseSeasonings(seasonings: any[]): { 调料名: string; 用量: string }[] {
-  if (!seasonings) return []
-  return seasonings.map(item => {
-    const key = Object.keys(item)[0]
-    return { 调料名: key, 用量: item[key] }
-  })
-}
-
-// 转换步骤格式
-function parseSteps(steps: any[]): { 步骤: number; 操作: string }[] {
-  if (!steps) return []
-  return steps.map(item => {
-    return { 步骤: item.step || item.步骤, 操作: item.description || item.操作 }
-  })
-}
+// 转换逻辑已移至子组件中
 </script>
 
 <template>
@@ -148,7 +106,7 @@ function parseSteps(steps: any[]): { 步骤: number; 操作: string }[] {
 
     <div class="recipe-header">
       <div class="recipe-emoji-large">
-        <img v-if="getFirstImage()" :src="getFirstImage()" :alt="recipe.name" class="cover-img" loading="lazy" />
+        <img v-if="getFirstImageLocal()" :src="getFirstImageLocal()" :alt="recipe.name" class="cover-img" loading="lazy" />
         <span v-else>{{ getRecipeEmoji(recipe.name) }}</span>
       </div>
       <div class="recipe-title">
@@ -174,78 +132,19 @@ function parseSteps(steps: any[]): { 步骤: number; 操作: string }[] {
       </div>
     </div>
 
-    <div class="nutrition-card">
-      <h3>营养成分</h3>
-      <div class="nutrition-grid">
-        <div class="nutrition-item">
-          <span class="value">{{ recipe.carbohydrate || '-' }}</span>
-          <span class="label">碳水(g)</span>
-        </div>
-        <div class="nutrition-item">
-          <span class="value">{{ recipe.protein || '-' }}</span>
-          <span class="label">蛋白质(g)</span>
-        </div>
-        <div class="nutrition-item">
-          <span class="value">{{ recipe.fat || '-' }}</span>
-          <span class="label">脂肪(g)</span>
-        </div>
-      </div>
-    </div>
+    <NutritionCard
+      :carbohydrate="recipe.carbohydrate"
+      :protein="recipe.protein"
+      :fat="recipe.fat"
+    />
 
-    <div class="recipe-section" v-if="recipe.taste">
-      <h3>口味占比</h3>
-      <div class="taste-bars">
-        <div class="taste-bar-row" v-for="item in tasteDisplay" :key="item.key">
-          <span class="taste-bar-label">{{ item.label }}</span>
-          <div class="taste-bar-track">
-            <div class="taste-bar-fill" :style="{ width: (item.value * 100) + '%' }"></div>
-          </div>
-          <span class="taste-bar-value">{{ (item.value * 100).toFixed(0) }}%</span>
-        </div>
-      </div>
-    </div>
+    <TasteBars v-if="recipe.taste" :taste="recipe.taste" />
 
-    <div class="recipe-section">
-      <h3>所需材料</h3>
-      <div class="materials-list">
-        <div v-for="(item, idx) in parseMaterials(recipe.materials)" :key="idx" class="material-item">
-          <span class="material-name">{{ item.材料名 }}</span>
-          <span class="material-weight">{{ item.重量 }}</span>
-        </div>
-      </div>
-    </div>
+    <MaterialsList :materials="recipe.materials" />
+    <SeasoningsList :seasonings="recipe.seasonings" />
+    <StepsList :steps="recipe.steps" />
 
-    <div class="recipe-section">
-      <h3>调味料</h3>
-      <div class="seasonings-list">
-        <div v-for="(item, idx) in parseSeasonings(recipe.seasonings)" :key="idx" class="seasoning-item">
-          <span class="seasoning-name">{{ item.调料名 }}</span>
-          <span class="seasoning-amount">{{ item.用量 }}</span>
-        </div>
-      </div>
-    </div>
-
-    <div class="recipe-section">
-      <h3>制作步骤</h3>
-      <div class="steps-list">
-        <div v-for="(step, idx) in parseSteps(recipe.steps)" :key="idx" class="step-item">
-          <div class="step-header">
-            <h4 class="step-title">{{ step.步骤 }}</h4>
-          </div>
-          <div class="step-content">
-            <p class="step-action">{{ step.操作 }}</p>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="recipe-section" v-if="recipe.allergens?.length">
-      <h3>过敏提示</h3>
-      <div class="allergens">
-        <span v-for="a in recipe.allergens" :key="a" class="allergen-tag">{{ a }}</span>
-      </div>
-      <p class="allergen-disclaimer">本过敏列表仅为提醒，不代表所有过敏源，请结合自身情况排查过敏源。</p>
-    </div>
+    <AllergenAlert v-if="recipe.allergens?.length" :allergens="recipe.allergens" />
   </div>
 
   <div v-else-if="loading" class="loading">
@@ -361,141 +260,6 @@ function parseSteps(steps: any[]): { 步骤: number; 操作: string }[] {
   color: #f44336;
 }
 
-.nutrition-card {
-  background: white;
-  border-radius: 20px;
-  padding: 1.5rem;
-  margin-bottom: 1.5rem;
-  box-shadow: 0 4px 20px rgba(76, 175, 80, 0.1);
-}
-
-.nutrition-card h3 {
-  color: #2e7d32;
-  margin-bottom: 1rem;
-}
-
-.nutrition-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 1rem;
-}
-
-.nutrition-item {
-  text-align: center;
-  padding: 1rem;
-  background: #f5fff5;
-  border-radius: 12px;
-}
-
-.nutrition-item .value {
-  display: block;
-  font-size: 1.5rem;
-  font-weight: 700;
-  color: #43a047;
-}
-
-.nutrition-item .label {
-  color: #689f38;
-  font-size: 0.85rem;
-}
-
-.recipe-section {
-  background: white;
-  border-radius: 20px;
-  padding: 1.5rem;
-  margin-bottom: 1.5rem;
-  box-shadow: 0 4px 20px rgba(76, 175, 80, 0.1);
-}
-
-.recipe-section h3 {
-  color: #2e7d32;
-  margin-bottom: 1rem;
-}
-
-.materials-list, .seasonings-list {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 0.8rem;
-}
-
-.material-item, .seasoning-item {
-  display: flex;
-  justify-content: space-between;
-  padding: 0.8rem 1rem;
-  background: #f5fff5;
-  border-radius: 10px;
-}
-
-.material-name, .seasoning-name {
-  color: #2e7d32;
-  font-weight: 500;
-}
-
-.material-weight, .seasoning-amount {
-  color: #689f38;
-}
-
-.steps-list {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.step-item {
-  padding: 1rem;
-  background: #f5fff5;
-  border-radius: 12px;
-  margin-bottom: 1rem;
-}
-
-.step-header {
-  border-bottom: 1px solid #c8e6c9;
-  padding-bottom: 0.5rem;
-  margin-bottom: 0.8rem;
-}
-
-.step-title {
-  color: #2e7d32;
-  font-size: 1.1rem;
-  margin: 0;
-}
-
-.step-content {
-  flex: 1;
-}
-
-.step-time {
-  color: #f57c00;
-  font-size: 0.85rem;
-  margin-bottom: 0.3rem;
-}
-
-.step-action {
-  color: #37474f;
-  line-height: 1.6;
-}
-
-.allergens {
-  display: flex;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-
-.allergen-tag {
-  background: #ffebee;
-  color: #d32f2f;
-  padding: 0.4rem 0.8rem;
-  border-radius: 12px;
-  font-size: 0.85rem;
-}
-
-.allergen-disclaimer {
-  margin-top: 0.8rem;
-  font-size: 0.8rem;
-  color: #78909c;
-  font-style: italic;
-}
-
 .loading {
   text-align: center;
   padding: 4rem;
@@ -513,50 +277,5 @@ function parseSteps(steps: any[]): { 步骤: number; 操作: string }[] {
     flex-direction: column;
     text-align: center;
   }
-
-  .materials-list, .seasonings-list {
-    grid-template-columns: 1fr;
-  }
-}
-
-.taste-bars {
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-}
-
-.taste-bar-row {
-  display: flex;
-  align-items: center;
-  gap: 0.8rem;
-}
-
-.taste-bar-label {
-  min-width: 2rem;
-  font-size: 0.9rem;
-  color: #555;
-  text-align: center;
-}
-
-.taste-bar-track {
-  flex: 1;
-  height: 10px;
-  background: #e0e0e0;
-  border-radius: 5px;
-  overflow: hidden;
-}
-
-.taste-bar-fill {
-  height: 100%;
-  background: linear-gradient(90deg, #4caf50, #81c784);
-  border-radius: 5px;
-  transition: width 0.3s ease;
-}
-
-.taste-bar-value {
-  min-width: 3rem;
-  font-size: 0.85rem;
-  color: #666;
-  text-align: right;
 }
 </style>

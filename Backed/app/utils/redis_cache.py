@@ -1,22 +1,49 @@
 """Redis 缓存工具"""
 import json
 import hashlib
+import time
 from typing import Optional, Any
 
 import redis
 from app.config import settings
 
 _redis_client = None
+_redis_degraded = False          # Redis 是否已知不可用
+_redis_retry_after: float = 0    # 降级状态下尝试重连的时间戳
 
 
-def get_redis() -> redis.Redis:
-    """获取 Redis 连接（惰性初始化）"""
-    global _redis_client
+def get_redis() -> Optional[redis.Redis]:
+    """获取 Redis 连接（惰性初始化，降级安全）
+
+    Redis 不可用时自动进入降级模式，60 秒后尝试恢复。
+    返回 None 时调用方应跳过缓存操作。
+    """
+    global _redis_client, _redis_degraded, _redis_retry_after
+
+    # 降级模式：未到重试时间，直接返回 None
+    if _redis_degraded and time.time() < _redis_retry_after:
+        return None
+
     if _redis_client is None:
-        _redis_client = redis.Redis.from_url(
-            settings.REDIS_URL,
-            decode_responses=True,
-        )
+        try:
+            _redis_client = redis.Redis.from_url(
+                settings.REDIS_URL,
+                decode_responses=True,
+                socket_connect_timeout=2,   # Redis 不可用时快速失败
+                socket_timeout=3,            # 操作超时
+                retry_on_timeout=False,
+                health_check_interval=30,    # 定期检查连接健康
+            )
+            # 验证连接是否可用（发送一个 PING）
+            _redis_client.ping()
+        except Exception:
+            _redis_degraded = True
+            _redis_retry_after = time.time() + 60
+            _redis_client = None
+            return None
+
+    # 成功获取连接，退出降级模式
+    _redis_degraded = False
     return _redis_client
 
 

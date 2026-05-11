@@ -3,6 +3,7 @@ import { ref, onMounted, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores'
 import axios from 'axios'
+import { INGREDIENT_CATEGORIES, CUISINES, METHODS } from '../config/constants'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -42,12 +43,9 @@ const recipeSearchQuery = ref('')
 const ingredients = ref<any[]>([])
 const showIngredientForm = ref(false)
 const editingIngredient = ref<any>(null)
-const ingredientCategories = ['蔬菜', '水果', '肉类', '蛋类', '奶制品', '谷物', '豆类', '坚果', '海鲜', '其他']
-const cuisineOptions = [
-        "川菜", "粤菜", "湘菜", "鲁菜", "苏菜", "浙菜", "闽菜", "徽菜",
-        "东北菜", "西北菜","家常菜","西餐", "日料", "韩餐", "东南亚菜", "家常菜","其他"
-    ]
-const methodOptions = ["蒸", "煮", "炸", "炒", "焖", "拌", "卤", "烤", "煎", "腌","炖", "其他"]
+const ingredientCategories = INGREDIENT_CATEGORIES
+const cuisineOptions = CUISINES
+const methodOptions = METHODS
 
 // 食谱表单
 const showRecipeForm = ref(false)

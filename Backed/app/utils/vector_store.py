@@ -9,15 +9,7 @@ import os
 import json
 import pickle
 import numpy as np
-from typing import List, Tuple, Optional
-
-# === HuggingFace 镜像/超时（必须在 sentence_transformers 导入前设置） ===
-if "HF_ENDPOINT" not in os.environ:
-    os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
-os.environ["HF_HUB_DOWNLOAD_TIMEOUT"] = os.environ.get("HF_HUB_DOWNLOAD_TIMEOUT", "10")
-os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
-
-from sentence_transformers import SentenceTransformer
+from typing import List, Tuple, Optional, Any
 
 from app.config import settings
 from app.utils.rag_knowledge import DiseaseRecord, build_chunk_text
@@ -145,7 +137,7 @@ class VectorStore:
     ):
         self.model_name = model_name
         self.device = device
-        self._model: Optional[SentenceTransformer] = None
+        self._model: Optional[Any] = None
         self._embeddings: Optional[np.ndarray] = None
         self._records: List[DiseaseRecord] = []
         self._loaded = False
@@ -153,8 +145,17 @@ class VectorStore:
     # ── 模型管理 ──────────────────────────────────────────
 
     @property
-    def model(self) -> SentenceTransformer:
+    def model(self) -> "SentenceTransformer":
         if self._model is None:
+            # 延迟导入 sentence-transformers（避免启动时加载 PyTorch）
+            # === HuggingFace 镜像/超时设置 ===
+            if "HF_ENDPOINT" not in os.environ:
+                os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+            os.environ["HF_HUB_DOWNLOAD_TIMEOUT"] = os.environ.get("HF_HUB_DOWNLOAD_TIMEOUT", "10")
+            os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
+
+            from sentence_transformers import SentenceTransformer
+
             # 策略1: 离线模式（模型已缓存，无网络请求）
             try:
                 os.environ["TRANSFORMERS_OFFLINE"] = "1"

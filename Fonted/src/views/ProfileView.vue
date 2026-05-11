@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores'
 import axios from 'axios'
 import { compressImage } from '../utils/image'
+import { CUISINES, METHODS } from '../config/constants'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -71,11 +72,8 @@ let isAccidentalClose = false
 // 剪贴板数据
 const clipboardData = ref<{type: 'recipe' | null, data: any}>({type: null, data: null})
 
-const cuisineOptions = [
-        "川菜", "粤菜", "湘菜", "鲁菜", "苏菜", "浙菜", "闽菜", "徽菜",
-        "东北菜", "西北菜","家常菜","西餐", "日料", "韩餐", "东南亚菜", "家常菜","其他"
-    ]
-const methodOptions = ['炒', '煮', '蒸', '炸', '烤', '焖', '凉拌', '卤', '煎', '腌', '其他']
+const cuisineOptions = CUISINES
+const methodOptions = METHODS
 const newTag = ref('')
 const tagType = ref<'allergens' | 'vitamins' | 'minerals'>('allergens')
 const newAllergen = ref('')
